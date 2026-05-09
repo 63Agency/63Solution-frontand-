@@ -1,0 +1,1022 @@
+"use client";
+
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import {
+  ArrowRightLeft,
+  Download,
+  Eye,
+  FilePlus2,
+  FileText,
+  Send,
+  Plus,
+  Trash2,
+} from "lucide-react";
+import { toast } from "sonner";
+import {
+  deleteFacture,
+  deleteDevis,
+  downloadFacturePdf,
+  downloadDevisPdf,
+  fetchDevisList,
+  fetchFacturesList,
+  sendDevisEmail,
+  sendFactureEmail,
+  transferDevisToFacture,
+  type BackendDevisListItem,
+} from "../../../lib/devis/backend-devis";
+
+type Tab = "devis" | "factures";
+
+const NOUVEAU_DEVIS_HREF = "/dashboard/factures/devis/nouveau";
+const NOUVELLE_FACTURE_HREF = "/dashboard/factures/facture/nouveau";
+const DEVIS_PER_PAGE = 10;
+type PendingDelete = {
+  row: BackendDevisListItem;
+  kind: "devis" | "facture";
+};
+type PendingSend = {
+  row: BackendDevisListItem;
+  kind: "devis" | "facture";
+};
+
+export function FacturesDevisPage() {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [tab, setTab] = useState<Tab>("devis");
+  const [devisRows, setDevisRows] = useState<BackendDevisListItem[]>([]);
+  const [factureRows, setFactureRows] = useState<BackendDevisListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [transferringId, setTransferringId] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const [pendingTransfer, setPendingTransfer] = useState<BackendDevisListItem | null>(null);
+  const [transferPriceValidated, setTransferPriceValidated] = useState(false);
+  const [transferEditTtc, setTransferEditTtc] = useState("");
+  const [pendingSend, setPendingSend] = useState<PendingSend | null>(null);
+  const [sendingId, setSendingId] = useState<string | null>(null);
+  const [sendEmailTo, setSendEmailTo] = useState("");
+  const [sendMessage, setSendMessage] = useState("");
+  const [hiddenConvertedDevisIds, setHiddenConvertedDevisIds] = useState<string[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [currentFacturePage, setCurrentFacturePage] = useState(1);
+  const formatNumeroDisplay = (value?: string) =>
+    value ? value.replace(/^FAC-/i, "FC-").replace(/^DEV-/i, "DV-") : "—";
+
+  useEffect(() => {
+    try {
+      const raw = window.localStorage.getItem("hiddenConvertedDevisIds");
+      if (!raw) return;
+      const parsed = JSON.parse(raw) as unknown;
+      if (Array.isArray(parsed)) {
+        setHiddenConvertedDevisIds(parsed.filter((v): v is string => typeof v === "string"));
+      }
+    } catch {
+      // Ignore localStorage parse issues
+    }
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const run = async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [devis, factures] = await Promise.all([fetchDevisList(), fetchFacturesList()]);
+        if (!cancelled) {
+          setDevisRows(devis);
+          setFactureRows(factures);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : "Impossible de charger les devis.");
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    };
+    run();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    const raw = searchParams.get("tab");
+    if (raw === "devis" || raw === "factures") {
+      setTab(raw);
+    }
+  }, [searchParams]);
+
+  const formatMad = (value: number | undefined) =>
+    value == null
+      ? "—"
+      : `${new Intl.NumberFormat("fr-FR", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        }).format(value)} MAD`;
+  const isEmailValid = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+
+  const handleDownloadDevis = async (row: BackendDevisListItem) => {
+    setError(null);
+    setDownloadingId(row.id);
+    try {
+      await downloadDevisPdf(row.id, row.numero || `devis-${row.id}`);
+    } catch (e) {
+      setError(
+        e instanceof Error ? e.message : "Téléchargement du devis impossible.",
+      );
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const handleDownloadFacture = async (row: BackendDevisListItem) => {
+    setError(null);
+    setDownloadingId(row.id);
+    try {
+      await downloadFacturePdf(row.id, row.numero || `facture-${row.id}`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Téléchargement de la facture impossible.");
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
+  const handleDeleteDevis = async (row: BackendDevisListItem) => {
+    setError(null);
+    setDeletingId(row.id);
+    try {
+      await deleteDevis(row.id);
+      setDevisRows((prev) => prev.filter((d) => d.id !== row.id));
+      toast.success("Devis supprimé avec succès.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Suppression du devis impossible.");
+      toast.error(e instanceof Error ? e.message : "Suppression du devis impossible.");
+    } finally {
+      setDeletingId(null);
+      setPendingDelete(null);
+    }
+  };
+
+  const handleDeleteFacture = async (row: BackendDevisListItem) => {
+    setError(null);
+    setDeletingId(row.id);
+    try {
+      await deleteFacture(row.id);
+      setFactureRows((prev) => prev.filter((f) => f.id !== row.id));
+      toast.success("Facture supprimée avec succès.");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Suppression de la facture impossible.");
+      toast.error(e instanceof Error ? e.message : "Suppression de la facture impossible.");
+    } finally {
+      setDeletingId(null);
+      setPendingDelete(null);
+    }
+  };
+
+  const numberToTransferInput = (value: number | undefined) =>
+    value != null && Number.isFinite(value) ? String(value) : "";
+
+  const parseTransferTtcInput = (): number | null => {
+    const t = transferEditTtc.trim().replace(",", ".");
+    if (t === "") {
+      toast.error("Renseigne le total TTC (nombre ≥ 0).");
+      return null;
+    }
+    const n = Number.parseFloat(t);
+    if (!Number.isFinite(n) || n < 0) {
+      toast.error("Total TTC invalide (nombre ≥ 0, virgule ou point acceptés).");
+      return null;
+    }
+    return n;
+  };
+
+  /** Dérive HT / TVA pour l’API à partir du seul TTC saisi (répartition proportionnelle au devis). */
+  const buildTransferTotalsFromTtc = (
+    row: BackendDevisListItem,
+    newTtc: number,
+  ): { totalHt: number; montantTva: number; totalTtc: number } => {
+    const round2 = (x: number) => Math.round(x * 100) / 100;
+    const oHt = row.totals?.totalHt;
+    const oTva = row.totals?.montantTva;
+    const oTtc = row.totals?.totalTtc;
+
+    const htOk = typeof oHt === "number" && Number.isFinite(oHt) && oHt >= 0;
+    const tvaOk = typeof oTva === "number" && Number.isFinite(oTva) && oTva >= 0;
+    const ttcOk = typeof oTtc === "number" && Number.isFinite(oTtc) && oTtc > 0;
+
+    if (htOk && tvaOk && ttcOk) {
+      const f = newTtc / oTtc;
+      return {
+        totalHt: round2(oHt * f),
+        montantTva: round2(oTva * f),
+        totalTtc: round2(newTtc),
+      };
+    }
+
+    const sumParts = (htOk ? oHt! : 0) + (tvaOk ? oTva! : 0);
+    if (htOk && tvaOk && sumParts > 0) {
+      const f = newTtc / sumParts;
+      return {
+        totalHt: round2(oHt * f),
+        montantTva: round2(oTva * f),
+        totalTtc: round2(newTtc),
+      };
+    }
+
+    return {
+      totalHt: round2(newTtc),
+      montantTva: 0,
+      totalTtc: round2(newTtc),
+    };
+  };
+
+  const openTransferModal = (row: BackendDevisListItem) => {
+    setTransferPriceValidated(false);
+    setTransferEditTtc(numberToTransferInput(row.totals?.totalTtc));
+    setPendingTransfer(row);
+  };
+
+  const handleTransferToFacture = async (
+    row: BackendDevisListItem,
+    totals: { totalHt: number; montantTva: number; totalTtc: number },
+  ) => {
+    setError(null);
+    setTransferringId(row.id);
+    try {
+      const facture = await transferDevisToFacture(row.id, { totals });
+      const factures = await fetchFacturesList();
+      // Hide the converted devis immediately from the devis table.
+      setDevisRows((prev) => prev.filter((d) => d.id !== row.id));
+      setHiddenConvertedDevisIds((prev) => {
+        if (prev.includes(row.id)) return prev;
+        const next = [...prev, row.id];
+        window.localStorage.setItem("hiddenConvertedDevisIds", JSON.stringify(next));
+        return next;
+      });
+      setFactureRows(factures);
+      setTab("factures");
+      setPendingTransfer(null);
+      setTransferPriceValidated(false);
+      setTransferEditTtc("");
+      toast.success(
+        `Devis transféré en facture${facture.numero ? ` (${formatNumeroDisplay(facture.numero)})` : ""}.`,
+      );
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Transfert devis -> facture impossible.";
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setTransferringId(null);
+    }
+  };
+
+  const openSendModal = (row: BackendDevisListItem, kind: "devis" | "facture") => {
+    const numero = formatNumeroDisplay(row.numero);
+    setPendingSend({ row, kind });
+    setSendEmailTo((row.clientEmail || "").trim());
+    setSendMessage(
+      kind === "devis"
+        ? `Bonjour,\n\nVeuillez trouver ci-joint le devis ${numero} au format PDF.\n\nCordialement.`
+        : `Bonjour,\n\nVeuillez trouver ci-joint la facture ${numero} au format PDF.\n\nCordialement.`,
+    );
+  };
+
+  const handleSendDocumentEmail = async () => {
+    if (!pendingSend) return;
+    const to = sendEmailTo.trim();
+    const message = sendMessage.trim();
+
+    if (!to) {
+      toast.error("Email du client obligatoire.");
+      return;
+    }
+    if (!isEmailValid(to)) {
+      toast.error("Format email invalide.");
+      return;
+    }
+    if (!message) {
+      toast.error("Message obligatoire.");
+      return;
+    }
+
+    setError(null);
+    setSendingId(pendingSend.row.id);
+    try {
+      const subject = `${
+        pendingSend.kind === "devis" ? "Devis" : "Facture"
+      } ${formatNumeroDisplay(pendingSend.row.numero)}`;
+      if (pendingSend.kind === "devis") {
+        await sendDevisEmail(pendingSend.row.id, { to, subject, message });
+      } else {
+        await sendFactureEmail(pendingSend.row.id, { to, subject, message });
+      }
+      toast.success(
+        `${pendingSend.kind === "devis" ? "Devis" : "Facture"} envoyé(e) par email avec succès.`,
+      );
+      setPendingSend(null);
+      setSendEmailTo("");
+      setSendMessage("");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Envoi email impossible.";
+      setError(msg);
+      toast.error(msg);
+    } finally {
+      setSendingId(null);
+    }
+  };
+
+  const sortedDevis = useMemo(
+    () =>
+      [...devisRows]
+        .filter((row) => !hiddenConvertedDevisIds.includes(row.id))
+        .sort((a, b) => {
+          const da = new Date(a.createdAt || a.dateEmission || 0).getTime();
+          const db = new Date(b.createdAt || b.dateEmission || 0).getTime();
+          return db - da;
+        }),
+    [devisRows, hiddenConvertedDevisIds],
+  );
+  const sortedFactures = useMemo(
+    () =>
+      [...factureRows].sort((a, b) => {
+        const da = new Date(a.createdAt || a.dateEmission || 0).getTime();
+        const db = new Date(b.createdAt || b.dateEmission || 0).getTime();
+        return db - da;
+      }),
+    [factureRows],
+  );
+
+  const totalPages = Math.max(1, Math.ceil(sortedDevis.length / DEVIS_PER_PAGE));
+
+  const paginatedDevis = useMemo(() => {
+    const start = (currentPage - 1) * DEVIS_PER_PAGE;
+    return sortedDevis.slice(start, start + DEVIS_PER_PAGE);
+  }, [sortedDevis, currentPage]);
+  const totalFacturePages = Math.max(1, Math.ceil(sortedFactures.length / DEVIS_PER_PAGE));
+  const paginatedFactures = useMemo(() => {
+    const start = (currentFacturePage - 1) * DEVIS_PER_PAGE;
+    return sortedFactures.slice(start, start + DEVIS_PER_PAGE);
+  }, [sortedFactures, currentFacturePage]);
+
+  const pageItems = useMemo<(number | "...")[]>(() => {
+    if (totalPages <= 3) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+
+    const items: (number | "...")[] = [];
+    items.push(1);
+
+    const start = Math.max(2, currentPage - 1);
+    const end = Math.min(totalPages - 1, currentPage + 1);
+
+    if (start > 2) {
+      items.push("...");
+    }
+
+    for (let page = start; page <= end; page += 1) {
+      items.push(page);
+    }
+
+    if (end < totalPages - 1) {
+      items.push("...");
+    }
+
+    items.push(totalPages);
+    return items;
+  }, [currentPage, totalPages]);
+  const facturePageItems = useMemo<(number | "...")[]>(() => {
+    if (totalFacturePages <= 3) {
+      return Array.from({ length: totalFacturePages }, (_, i) => i + 1);
+    }
+
+    const items: (number | "...")[] = [];
+    items.push(1);
+
+    const start = Math.max(2, currentFacturePage - 1);
+    const end = Math.min(totalFacturePages - 1, currentFacturePage + 1);
+
+    if (start > 2) {
+      items.push("...");
+    }
+
+    for (let page = start; page <= end; page += 1) {
+      items.push(page);
+    }
+
+    if (end < totalFacturePages - 1) {
+      items.push("...");
+    }
+
+    items.push(totalFacturePages);
+    return items;
+  }, [currentFacturePage, totalFacturePages]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+    setCurrentFacturePage(1);
+  }, [tab]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+  useEffect(() => {
+    if (currentFacturePage > totalFacturePages) {
+      setCurrentFacturePage(totalFacturePages);
+    }
+  }, [currentFacturePage, totalFacturePages]);
+
+  return (
+    <>
+      <header className="flex shrink-0 flex-col gap-4 border-b border-zinc-800 px-6 py-5 md:flex-row md:items-end md:justify-between md:px-8 md:py-6">
+        <div>
+          <p className="font-mono text-xs uppercase tracking-widest text-zinc-500">
+            Facturation
+          </p>
+          <h1 className="text-4xl font-semibold leading-tight text-white">
+            Devis & factures
+          </h1>
+        </div>
+        <p className="max-w-md font-mono text-xs uppercase tracking-wider text-zinc-500">
+          Crée et suis tes devis, puis transforme-les en factures. Branchement
+          API à venir avec ton backend Nest.
+        </p>
+      </header>
+
+      <div className="flex flex-col gap-6 px-6 py-6 md:px-8 md:py-8">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 pb-4 font-mono text-[11px] uppercase tracking-widest">
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setTab("devis")}
+              className={`border px-4 py-2 transition ${
+                tab === "devis"
+                  ? "border-zinc-700 bg-zinc-800 text-white"
+                  : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
+              }`}
+            >
+              <span className="inline-flex items-center gap-2">
+                <FilePlus2 className="size-4" aria-hidden />
+                Devis
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setTab("factures")}
+              className={`border px-4 py-2 transition ${
+                tab === "factures"
+                  ? "border-zinc-700 bg-zinc-800 text-white"
+                  : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
+              }`}
+            >
+              <span className="inline-flex items-center gap-2">
+                <FileText className="size-4" aria-hidden />
+                Factures
+              </span>
+            </button>
+          </div>
+          <Link
+            href={tab === "devis" ? NOUVEAU_DEVIS_HREF : NOUVELLE_FACTURE_HREF}
+            className="inline-flex items-center justify-center gap-2 rounded-md border border-indigo-500 bg-indigo-600 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white transition hover:bg-indigo-500"
+          >
+            <Plus className="size-4" aria-hidden />
+            {tab === "devis" ? "Nouveau devis" : "Nouvelle facture"}
+          </Link>
+        </div>
+
+        {tab === "devis" ? (
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+            <section className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-5 lg:col-span-12 min-h-[200px]">
+              <div className="mb-4">
+                <h3 className="text-base font-medium text-white">Devis récents</h3>
+                <p className="text-xs uppercase tracking-widest text-zinc-500">
+                  Aperçu
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[520px] border-collapse font-mono text-sm text-zinc-300">
+                  <thead>
+                    <tr className="border-b border-zinc-700 text-left text-[10px] uppercase tracking-widest text-zinc-500">
+                      <th className="pb-2 pr-4 font-normal">Numéro</th>
+                      <th className="pb-2 pr-4 font-normal">Client</th>
+                      <th className="pb-2 pr-4 font-normal">Montant TTC</th>
+                      <th className="pb-2 pr-4 font-normal">Statut</th>
+                      <th className="pb-2 font-normal">Date</th>
+                      <th className="pb-2 pl-4 text-right font-normal">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <tr>
+                        <td colSpan={6} className="py-6 text-center text-zinc-500">
+                          Chargement des devis...
+                        </td>
+                      </tr>
+                    ) : error ? (
+                      <tr>
+                        <td colSpan={6} className="py-6 text-center text-red-400">
+                          {error}
+                        </td>
+                      </tr>
+                    ) : sortedDevis.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-6 text-center text-zinc-500">
+                          Aucun devis enregistré pour le moment.
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedDevis.map((row) => (
+                        <tr
+                          key={row.id}
+                          className="border-b border-zinc-800 transition hover:bg-zinc-800/50"
+                        >
+                          <td className="py-3 pr-4">{formatNumeroDisplay(row.numero)}</td>
+                          <td className="py-3 pr-4">{row.clientNom || "—"}</td>
+                          <td className="py-3 pr-4">{formatMad(row.totals?.totalTtc)}</td>
+                          <td className="py-3 pr-4">{row.status || "draft"}</td>
+                          <td className="py-3">
+                            {row.dateEmission
+                              ? new Date(row.dateEmission).toLocaleDateString("fr-FR")
+                              : "—"}
+                          </td>
+                          <td className="py-3 pl-4 text-right">
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  router.push(
+                                    `${NOUVEAU_DEVIS_HREF}?ref=${encodeURIComponent(row.id)}`,
+                                  )
+                                }
+                                className="inline-flex items-center justify-center rounded border border-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-800"
+                                title="Voir détail devis"
+                                aria-label="Voir détail devis"
+                              >
+                                <Eye className="size-3.5" aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadDevis(row)}
+                                disabled={downloadingId === row.id || deletingId === row.id}
+                                className="inline-flex items-center justify-center rounded border border-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                                title="Télécharger devis PDF"
+                                aria-label="Télécharger devis PDF"
+                              >
+                                <Download className="size-3.5" aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openSendModal(row, "devis")}
+                                disabled={
+                                  deletingId === row.id ||
+                                  downloadingId === row.id ||
+                                  transferringId === row.id ||
+                                  sendingId === row.id
+                                }
+                                className="inline-flex items-center justify-center rounded border border-emerald-700/60 p-1.5 text-emerald-300 hover:bg-emerald-900/30 disabled:cursor-not-allowed disabled:opacity-60"
+                                title="Envoyer devis par email"
+                                aria-label="Envoyer devis par email"
+                              >
+                                <Send className="size-3.5" aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPendingDelete({ row, kind: "devis" })}
+                                disabled={
+                                  deletingId === row.id ||
+                                  downloadingId === row.id ||
+                                  transferringId === row.id
+                                }
+                                className="inline-flex items-center justify-center rounded border border-red-700/60 p-1.5 text-red-300 hover:bg-red-900/30 disabled:cursor-not-allowed disabled:opacity-60"
+                                title="Supprimer devis"
+                                aria-label="Supprimer devis"
+                              >
+                                <Trash2 className="size-3.5" aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openTransferModal(row)}
+                                disabled={
+                                  deletingId === row.id ||
+                                  downloadingId === row.id ||
+                                  transferringId === row.id
+                                }
+                                className="inline-flex items-center justify-center rounded border border-indigo-700/60 p-1.5 text-indigo-300 hover:bg-indigo-900/30 disabled:cursor-not-allowed disabled:opacity-60"
+                                title="Transférer en facture"
+                                aria-label="Transférer en facture"
+                              >
+                                <ArrowRightLeft className="size-3.5" aria-hidden />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {!loading && !error && sortedDevis.length > 0 ? (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 pt-3 font-mono text-[11px] uppercase tracking-widest text-zinc-400">
+                  <p>
+                    Page {currentPage} / {totalPages} - {sortedDevis.length} devis
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                      disabled={currentPage === 1}
+                      className="rounded border border-zinc-700 px-2.5 py-1.5 text-zinc-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Precedent
+                    </button>
+                    {pageItems.map((item, idx) =>
+                      item === "..." ? (
+                        <span key={`dots-${idx}`} className="px-1 text-zinc-500">
+                          ...
+                        </span>
+                      ) : (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => setCurrentPage(item)}
+                          className={`rounded border px-2.5 py-1.5 ${
+                            item === currentPage
+                              ? "border-zinc-500 bg-zinc-800 text-white"
+                              : "border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                          }`}
+                        >
+                          {item}
+                        </button>
+                      ),
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                      disabled={currentPage === totalPages}
+                      className="rounded border border-zinc-700 px-2.5 py-1.5 text-zinc-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Suivant
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </section>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+            <section className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-5 lg:col-span-12 min-h-[200px]">
+              <div className="mb-4">
+                <h3 className="text-base font-medium text-white">Factures récentes</h3>
+                <p className="text-xs uppercase tracking-widest text-zinc-500">
+                  Aperçu
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[520px] border-collapse font-mono text-sm text-zinc-300">
+                  <thead>
+                    <tr className="border-b border-zinc-700 text-left text-[10px] uppercase tracking-widest text-zinc-500">
+                      <th className="pb-2 pr-4 font-normal">Numéro</th>
+                      <th className="pb-2 pr-4 font-normal">Client</th>
+                      <th className="pb-2 pr-4 font-normal">Montant TTC</th>
+                      <th className="pb-2 pr-4 font-normal">Statut</th>
+                      <th className="pb-2 font-normal">Date</th>
+                      <th className="pb-2 pl-4 text-right font-normal">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <tr>
+                        <td colSpan={6} className="py-6 text-center text-zinc-500">
+                          Chargement des factures...
+                        </td>
+                      </tr>
+                    ) : error ? (
+                      <tr>
+                        <td colSpan={6} className="py-6 text-center text-red-400">
+                          {error}
+                        </td>
+                      </tr>
+                    ) : sortedFactures.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="py-6 text-center text-zinc-500">
+                          Aucune facture réelle disponible pour le moment.
+                        </td>
+                      </tr>
+                    ) : (
+                      paginatedFactures.map((row) => (
+                        <tr
+                          key={row.id}
+                          className="border-b border-zinc-800 transition hover:bg-zinc-800/50"
+                        >
+                          <td className="py-3 pr-4">{formatNumeroDisplay(row.numero)}</td>
+                          <td className="py-3 pr-4">{row.clientNom || "—"}</td>
+                          <td className="py-3 pr-4">{formatMad(row.totals?.totalTtc)}</td>
+                          <td className="py-3 pr-4">{row.status || "draft"}</td>
+                          <td className="py-3">
+                            {row.dateEmission
+                              ? new Date(row.dateEmission).toLocaleDateString("fr-FR")
+                              : "—"}
+                          </td>
+                          <td className="py-3 pl-4 text-right">
+                            <div className="inline-flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  router.push(
+                                    `${NOUVELLE_FACTURE_HREF}?ref=${encodeURIComponent(row.id)}`,
+                                  )
+                                }
+                                className="inline-flex items-center justify-center rounded border border-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-800"
+                                title="Voir détail facture"
+                                aria-label="Voir détail facture"
+                              >
+                                <Eye className="size-3.5" aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDownloadFacture(row)}
+                                disabled={downloadingId === row.id || deletingId === row.id}
+                                className="inline-flex items-center justify-center rounded border border-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                                title="Télécharger facture PDF"
+                                aria-label="Télécharger facture PDF"
+                              >
+                                <Download className="size-3.5" aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openSendModal(row, "facture")}
+                                disabled={
+                                  deletingId === row.id ||
+                                  downloadingId === row.id ||
+                                  sendingId === row.id
+                                }
+                                className="inline-flex items-center justify-center rounded border border-emerald-700/60 p-1.5 text-emerald-300 hover:bg-emerald-900/30 disabled:cursor-not-allowed disabled:opacity-60"
+                                title="Envoyer facture par email"
+                                aria-label="Envoyer facture par email"
+                              >
+                                <Send className="size-3.5" aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPendingDelete({ row, kind: "facture" })}
+                                disabled={deletingId === row.id || downloadingId === row.id}
+                                className="inline-flex items-center justify-center rounded border border-red-700/60 p-1.5 text-red-300 hover:bg-red-900/30 disabled:cursor-not-allowed disabled:opacity-60"
+                                title="Supprimer facture"
+                                aria-label="Supprimer facture"
+                              >
+                                <Trash2 className="size-3.5" aria-hidden />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+              {!loading && !error && sortedFactures.length > 0 ? (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 pt-3 font-mono text-[11px] uppercase tracking-widest text-zinc-400">
+                  <p>
+                    Page {currentFacturePage} / {totalFacturePages} - {sortedFactures.length} factures
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentFacturePage((p) => Math.max(1, p - 1))}
+                      disabled={currentFacturePage === 1}
+                      className="rounded border border-zinc-700 px-2.5 py-1.5 text-zinc-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Precedent
+                    </button>
+                    {facturePageItems.map((item, idx) =>
+                      item === "..." ? (
+                        <span key={`facture-dots-${idx}`} className="px-1 text-zinc-500">
+                          ...
+                        </span>
+                      ) : (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => setCurrentFacturePage(item)}
+                          className={`rounded border px-2.5 py-1.5 ${
+                            item === currentFacturePage
+                              ? "border-zinc-500 bg-zinc-800 text-white"
+                              : "border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                          }`}
+                        >
+                          {item}
+                        </button>
+                      ),
+                    )}
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setCurrentFacturePage((p) => Math.min(totalFacturePages, p + 1))
+                      }
+                      disabled={currentFacturePage === totalFacturePages}
+                      className="rounded border border-zinc-700 px-2.5 py-1.5 text-zinc-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Suivant
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </section>
+          </div>
+        )}
+      </div>
+
+      {pendingDelete ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
+            <h3 className="text-lg font-semibold text-white">Confirmer la suppression</h3>
+            <p className="mt-2 text-sm text-zinc-300">
+              Voulez-vous vraiment supprimer {pendingDelete.kind === "facture" ? "la facture" : "le devis"}{" "}
+              <span className="font-semibold text-white">
+                {pendingDelete.row.numero
+                  ? formatNumeroDisplay(pendingDelete.row.numero)
+                  : pendingDelete.row.id}
+              </span>{" "}
+              ? Cette action est irréversible.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingDelete(null)}
+                disabled={deletingId === pendingDelete.row.id}
+                className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  pendingDelete.kind === "facture"
+                    ? handleDeleteFacture(pendingDelete.row)
+                    : handleDeleteDevis(pendingDelete.row)
+                }
+                disabled={deletingId === pendingDelete.row.id}
+                className="rounded-md border border-red-700 bg-red-700/80 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {deletingId === pendingDelete.row.id ? "Suppression..." : "Supprimer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pendingTransfer ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
+            <h3 className="text-lg font-semibold text-white">Transférer en facture</h3>
+            <p className="mt-2 text-sm text-zinc-300">
+              Confirmer le transfert du devis{" "}
+              <span className="font-semibold text-white">
+                {pendingTransfer.numero
+                  ? formatNumeroDisplay(pendingTransfer.numero)
+                  : pendingTransfer.id}
+              </span>{" "}
+              vers une facture. Modifie uniquement le total TTC si besoin, puis valide.
+            </p>
+            <div className="mt-4 space-y-2 rounded-lg border border-zinc-700 bg-zinc-950/80 p-4 font-mono text-sm">
+              <p className="text-[10px] uppercase tracking-widest text-zinc-500">
+                Prix (MAD)
+              </p>
+              <label className="block text-zinc-200">
+                <span className="text-xs text-zinc-500">Total TTC</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={transferEditTtc}
+                  onChange={(e) => {
+                    setTransferEditTtc(e.target.value);
+                    setTransferPriceValidated(false);
+                  }}
+                  disabled={transferringId === pendingTransfer.id}
+                  className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500 disabled:opacity-50"
+                  placeholder="0"
+                  autoComplete="off"
+                />
+              </label>
+              <p className="text-xs text-zinc-500">
+                HT et TVA ne sont pas affichés ici : le backend reçoit tout de même une
+                répartition cohérente (proportionnelle au devis) pour le même TTC.
+              </p>
+            </div>
+            <label className="mt-4 flex cursor-pointer items-start gap-3 text-sm text-zinc-300">
+              <input
+                type="checkbox"
+                checked={transferPriceValidated}
+                onChange={(e) => setTransferPriceValidated(e.target.checked)}
+                disabled={transferringId === pendingTransfer.id}
+                className="mt-0.5 size-4 shrink-0 rounded border-zinc-600 bg-zinc-950 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
+              />
+              <span>
+                Je confirme le total TTC saisi et j&apos;accepte de créer la facture avec ce
+                montant.
+              </span>
+            </label>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setTransferPriceValidated(false);
+                  setTransferEditTtc("");
+                  setPendingTransfer(null);
+                }}
+                disabled={transferringId === pendingTransfer.id}
+                className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const ttc = parseTransferTtcInput();
+                  if (ttc === null) return;
+                  const totals = buildTransferTotalsFromTtc(pendingTransfer, ttc);
+                  void handleTransferToFacture(pendingTransfer, totals);
+                }}
+                disabled={
+                  transferringId === pendingTransfer.id || !transferPriceValidated
+                }
+                className="rounded-md border border-indigo-700 bg-indigo-700/80 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {transferringId === pendingTransfer.id
+                  ? "Transfert..."
+                  : "Transférer en facture"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {pendingSend ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-lg rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
+            <h3 className="text-lg font-semibold text-white">
+              Envoyer {pendingSend.kind === "devis" ? "le devis" : "la facture"} par email
+            </h3>
+            <p className="mt-2 text-sm text-zinc-300">
+              {pendingSend.kind === "devis" ? "Devis" : "Facture"}{" "}
+              <span className="font-semibold text-white">
+                {pendingSend.row.numero
+                  ? formatNumeroDisplay(pendingSend.row.numero)
+                  : pendingSend.row.id}
+              </span>{" "}
+              sera envoyé en PDF au client.
+            </p>
+
+            <div className="mt-4 space-y-3">
+              <label className="block text-sm text-zinc-200">
+                Email destinataire
+                <input
+                  type="email"
+                  value={sendEmailTo}
+                  onChange={(e) => setSendEmailTo(e.target.value)}
+                  placeholder="client@email.com"
+                  className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-zinc-500"
+                />
+              </label>
+
+              <label className="block text-sm text-zinc-200">
+                Message
+                <textarea
+                  value={sendMessage}
+                  onChange={(e) => setSendMessage(e.target.value)}
+                  rows={6}
+                  className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-zinc-500"
+                />
+              </label>
+            </div>
+
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setPendingSend(null)}
+                disabled={sendingId === pendingSend.row.id}
+                className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleSendDocumentEmail}
+                disabled={sendingId === pendingSend.row.id}
+                className="rounded-md border border-emerald-700 bg-emerald-700/80 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {sendingId === pendingSend.row.id ? "Envoi..." : "Envoyer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}
