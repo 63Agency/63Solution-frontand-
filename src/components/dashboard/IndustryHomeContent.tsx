@@ -7,7 +7,7 @@ import {
   type DashboardBusinessKpis,
 } from "../ui/IndustryStandard";
 import {
-  fetchClientsList,
+  fetchClientsListDetailed,
   fetchDevisList,
   fetchFacturesList,
   type BackendDevisListItem,
@@ -84,26 +84,29 @@ export function IndustryHomeContent() {
     let cancelled = false;
     (async () => {
       try {
-        const [devis, factures, clients] = await Promise.all([
+        const [devis, factures, clientsResult] = await Promise.all([
           fetchDevisList(),
           fetchFacturesList(),
-          fetchClientsList(),
+          fetchClientsListDetailed(),
         ]);
         if (cancelled) return;
 
         const hiddenConverted = readHiddenConvertedDevisIds();
         const devisForTotals = filterDevisForDashboard(devis, hiddenConverted);
 
-        const fromApi = clients.length;
         const derived = countUniqueClientsFromDocs(devisForTotals, factures);
+        const clientCount = clientsResult.authoritativeFromApi
+          ? clientsResult.clients.length
+          : derived;
+        const clientsSource = clientsResult.authoritativeFromApi ? "api" : "derived";
 
         setBusinessKpis({
           loading: false,
           error: null,
           pendingDevisMad: sumTotalTtc(devisForTotals),
           validatedFacturesMad: sumTotalTtc(factures),
-          clientCount: fromApi > 0 ? fromApi : derived,
-          clientsSource: fromApi > 0 ? "api" : "derived",
+          clientCount,
+          clientsSource,
         });
       } catch (e) {
         if (!cancelled) {

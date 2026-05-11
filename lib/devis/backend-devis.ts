@@ -60,6 +60,8 @@ export type BackendDevisRecord = {
   paiementBanque?: string;
   paiementTitulaire?: string;
   paiementRib?: string;
+  /** Taux TVA en % (ex. 20), si renvoyé par l’API. */
+  tvaTaux?: number;
   lignes?: Array<{
     id?: string;
     titre?: string;
@@ -153,11 +155,13 @@ function parseBackendDevisRecord(row: unknown): BackendDevisRecord | null {
       totalTtc?: number | string;
       totalTTC?: number | string;
     };
+    tvaTaux?: number | string;
   };
   if (!r?.id) return null;
   const totalHt = asNumber(r.totals?.totalHt);
   const montantTva = asNumber(r.totals?.montantTva);
   const totalTtc = asNumber(r.totals?.totalTtc) ?? asNumber(r.totals?.totalTTC);
+  const tvaTauxParsed = asNumber(r.tvaTaux);
 
   return {
     id: r.id,
@@ -182,6 +186,7 @@ function parseBackendDevisRecord(row: unknown): BackendDevisRecord | null {
     paiementBanque: r.paiementBanque,
     paiementTitulaire: r.paiementTitulaire,
     paiementRib: r.paiementRib,
+    tvaTaux: tvaTauxParsed != null && tvaTauxParsed >= 0 ? tvaTauxParsed : undefined,
     lignes: Array.isArray(r.lignes) ? r.lignes : undefined,
     totals:
       totalTtc !== null || totalHt !== null || montantTva !== null
@@ -585,15 +590,23 @@ function parseBackendClientRecord(row: unknown): BackendClientRecord | null {
   };
 }
 
+/** Résultat de GET /clients : liste + indique si la réponse vient bien de l’API (liste vide = fiable). */
+export type FetchClientsListResult = {
+  clients: BackendClientRecord[];
+  /** true si un GET /clients… a répondu 2xx : ne pas reconstruire la liste depuis les devis. */
+  authoritativeFromApi: boolean;
+};
+
 /**
- * Liste des clients (optionnel). Ne lance pas si l’endpoint n’existe pas — retourne [].
+ * Liste des clients. Si `authoritativeFromApi` est false, l’endpoint n’a pas répondu OK (404 / erreur) —
+ * l’UI peut alors dériver les contacts depuis les devis/factures.
  */
-export async function fetchClientsList(): Promise<BackendClientRecord[]> {
+export async function fetchClientsListDetailed(): Promise<FetchClientsListResult> {
   const base = getApiBaseUrl();
-  if (!base) return [];
+  if (!base) return { clients: [], authoritativeFromApi: false };
 
   const token = getStoredAccessToken();
-  if (!token) return [];
+  if (!token) return { clients: [], authoritativeFromApi: false };
 
   const candidates = ["/clients", "/clients/list", "/clients/mine"];
 
@@ -614,12 +627,22 @@ export async function fetchClientsList(): Promise<BackendClientRecord[]> {
         ? ((raw as { items: unknown[] }).items as unknown[])
         : [];
 
-    return list
+    const clients = list
       .map((row) => parseBackendClientRecord(row))
       .filter((v): v is BackendClientRecord => v !== null);
+
+    return { clients, authoritativeFromApi: true };
   }
 
-  return [];
+  return { clients: [], authoritativeFromApi: false };
+}
+
+/**
+ * Liste des clients (optionnel). Ne lance pas si l’endpoint n’existe pas — retourne [].
+ */
+export async function fetchClientsList(): Promise<BackendClientRecord[]> {
+  const r = await fetchClientsListDetailed();
+  return r.clients;
 }
 
 /** Ids générés côté front (liste dérivée e:/i:/n: ou fallback parse email:/ice:/nom:) — non PATCHables. */
@@ -790,6 +813,15 @@ export type TransferDevisToFactureTotals = {
   totalTtc: number;
 };
 
+/** Lignes ajustées envoyées avec le transfert (optionnel). */
+export type TransferDevisToFactureLigne = {
+  id: string;
+  titre: string;
+  description: string;
+  quantite: number;
+  prixUnitaireHt: number;
+};
+
 export async function deleteFacture(factureId: string): Promise<void> {
   const base = getApiBaseUrl();
   if (!base) throw new Error("NEXT_PUBLIC_API_URL manquante.");
@@ -808,7 +840,11 @@ export async function deleteFacture(factureId: string): Promise<void> {
 
 export async function transferDevisToFacture(
   devisId: string,
-  options?: { totals?: TransferDevisToFactureTotals },
+  options?: {
+    totals?: TransferDevisToFactureTotals;
+    lignes?: TransferDevisToFactureLigne[];
+    tvaTaux?: number;
+  },
 ): Promise<BackendDevisRecord> {
   const base = getApiBaseUrl();
   if (!base) throw new Error("NEXT_PUBLIC_API_URL manquante.");
@@ -824,6 +860,20 @@ export async function transferDevisToFacture(
             montantTva: options.totals.montantTva,
             totalTtc: options.totals.totalTtc,
           },
+          ...(options.lignes && options.lignes.length > 0
+            ? {
+                lignes: options.lignes.map((l) => ({
+                  id: l.id,
+                  titre: l.titre,
+                  description: l.description,
+                  quantite: l.quantite,
+                  prixUnitaireHt: l.prixUnitaireHt,
+                })),
+              }
+            : {}),
+          ...(typeof options.tvaTaux === "number" && Number.isFinite(options.tvaTaux)
+            ? { tvaTaux: options.tvaTaux }
+            : {}),
         })
       : undefined;
 

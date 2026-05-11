@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ArrowRightLeft,
   Download,
@@ -19,12 +19,14 @@ import {
   deleteDevis,
   downloadFacturePdf,
   downloadDevisPdf,
+  fetchDevisById,
   fetchDevisList,
   fetchFacturesList,
   sendDevisEmail,
   sendFactureEmail,
   transferDevisToFacture,
   type BackendDevisListItem,
+  type TransferDevisToFactureLigne,
 } from "../../../lib/devis/backend-devis";
 
 type Tab = "devis" | "factures";
@@ -56,6 +58,11 @@ export function FacturesDevisPage() {
   const [pendingTransfer, setPendingTransfer] = useState<BackendDevisListItem | null>(null);
   const [transferPriceValidated, setTransferPriceValidated] = useState(false);
   const [transferEditTtc, setTransferEditTtc] = useState("");
+  const [transferDetailLoading, setTransferDetailLoading] = useState(false);
+  const [transferDetailError, setTransferDetailError] = useState<string | null>(null);
+  const [transferLignes, setTransferLignes] = useState<TransferDevisToFactureLigne[]>([]);
+  const [transferTvaRate, setTransferTvaRate] = useState(20);
+  const transferFetchSeq = useRef(0);
   const [pendingSend, setPendingSend] = useState<PendingSend | null>(null);
   const [sendingId, setSendingId] = useState<string | null>(null);
   const [sendEmailTo, setSendEmailTo] = useState("");
@@ -118,6 +125,17 @@ export function FacturesDevisPage() {
           minimumFractionDigits: 2,
           maximumFractionDigits: 2,
         }).format(value)} MAD`;
+
+  const transferLineTotals = useMemo(() => {
+    const round2 = (x: number) => Math.round(x * 100) / 100;
+    const totalHt = round2(
+      transferLignes.reduce((s, l) => s + l.quantite * l.prixUnitaireHt, 0),
+    );
+    const montantTva = round2(totalHt * (transferTvaRate / 100));
+    const totalTtc = round2(totalHt + montantTva);
+    return { totalHt, montantTva, totalTtc };
+  }, [transferLignes, transferTvaRate]);
+
   const isEmailValid = (value: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 
   const handleDownloadDevis = async (row: BackendDevisListItem) => {
@@ -235,20 +253,100 @@ export function FacturesDevisPage() {
     };
   };
 
+  const closeTransferModal = () => {
+    transferFetchSeq.current += 1;
+    setPendingTransfer(null);
+    setTransferPriceValidated(false);
+    setTransferEditTtc("");
+    setTransferLignes([]);
+    setTransferDetailError(null);
+    setTransferDetailLoading(false);
+    setTransferTvaRate(20);
+  };
+
+  const patchTransferLigneAt = (
+    index: number,
+    patch: Partial<TransferDevisToFactureLigne>,
+  ) => {
+    setTransferPriceValidated(false);
+    setTransferLignes((prev) => {
+      const next = [...prev];
+      const cur = next[index];
+      if (!cur) return prev;
+      next[index] = { ...cur, ...patch };
+      return next;
+    });
+  };
+
   const openTransferModal = (row: BackendDevisListItem) => {
+    const seq = ++transferFetchSeq.current;
     setTransferPriceValidated(false);
     setTransferEditTtc(numberToTransferInput(row.totals?.totalTtc));
     setPendingTransfer(row);
+    setTransferDetailError(null);
+    setTransferLignes([]);
+    setTransferDetailLoading(true);
+
+    void (async () => {
+      try {
+        const full = await fetchDevisById(row.id);
+        if (transferFetchSeq.current !== seq) return;
+
+        let tva = 20;
+        if (typeof full.tvaTaux === "number" && Number.isFinite(full.tvaTaux) && full.tvaTaux >= 0) {
+          tva = full.tvaTaux;
+        } else {
+          const th = full.totals?.totalHt ?? row.totals?.totalHt;
+          const mtv = full.totals?.montantTva ?? row.totals?.montantTva;
+          if (typeof th === "number" && th > 0 && typeof mtv === "number" && mtv >= 0) {
+            tva = (mtv / th) * 100;
+          }
+        }
+        setTransferTvaRate(Math.round(tva * 100) / 100);
+
+        const list = full.lignes ?? [];
+        const mapped: TransferDevisToFactureLigne[] = list.map((l, i) => ({
+          id: typeof l.id === "string" && l.id.length > 0 ? l.id : `line-${i}`,
+          titre: (String(l.titre ?? `Ligne ${i + 1}`).trim() || `Ligne ${i + 1}`),
+          description: typeof l.description === "string" ? l.description : "",
+          quantite:
+            typeof l.quantite === "number" && Number.isFinite(l.quantite)
+              ? Math.max(1, Math.floor(l.quantite))
+              : 1,
+          prixUnitaireHt:
+            typeof l.prixUnitaireHt === "number" &&
+            Number.isFinite(l.prixUnitaireHt) &&
+            l.prixUnitaireHt >= 0
+              ? l.prixUnitaireHt
+              : 0,
+        }));
+        setTransferLignes(mapped);
+      } catch (e) {
+        if (transferFetchSeq.current !== seq) return;
+        setTransferDetailError(
+          e instanceof Error ? e.message : "Impossible de charger le détail du devis.",
+        );
+        setTransferLignes([]);
+      } finally {
+        if (transferFetchSeq.current === seq) setTransferDetailLoading(false);
+      }
+    })();
   };
 
   const handleTransferToFacture = async (
     row: BackendDevisListItem,
     totals: { totalHt: number; montantTva: number; totalTtc: number },
+    options?: { lignes?: TransferDevisToFactureLigne[]; tvaTaux?: number },
   ) => {
     setError(null);
     setTransferringId(row.id);
     try {
-      const facture = await transferDevisToFacture(row.id, { totals });
+      const facture = await transferDevisToFacture(row.id, {
+        totals,
+        ...(options?.lignes && options.lignes.length > 0
+          ? { lignes: options.lignes, tvaTaux: options.tvaTaux }
+          : {}),
+      });
       const factures = await fetchFacturesList();
       // Hide the converted devis immediately from the devis table.
       setDevisRows((prev) => prev.filter((d) => d.id !== row.id));
@@ -260,9 +358,7 @@ export function FacturesDevisPage() {
       });
       setFactureRows(factures);
       setTab("factures");
-      setPendingTransfer(null);
-      setTransferPriceValidated(false);
-      setTransferEditTtc("");
+      closeTransferModal();
       toast.success(
         `Devis transféré en facture${facture.numero ? ` (${formatNumeroDisplay(facture.numero)})` : ""}.`,
       );
@@ -872,86 +968,265 @@ export function FacturesDevisPage() {
       ) : null}
 
       {pendingTransfer ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
-            <h3 className="text-lg font-semibold text-white">Transférer en facture</h3>
-            <p className="mt-2 text-sm text-zinc-300">
-              Confirmer le transfert du devis{" "}
-              <span className="font-semibold text-white">
-                {pendingTransfer.numero
-                  ? formatNumeroDisplay(pendingTransfer.numero)
-                  : pendingTransfer.id}
-              </span>{" "}
-              vers une facture. Modifie uniquement le total TTC si besoin, puis valide.
-            </p>
-            <div className="mt-4 space-y-2 rounded-lg border border-zinc-700 bg-zinc-950/80 p-4 font-mono text-sm">
-              <p className="text-[10px] uppercase tracking-widest text-zinc-500">
-                Prix (MAD)
+        <div className="fixed inset-0 z-50 overflow-y-auto overscroll-y-contain bg-black/60">
+          <div className="mx-auto flex min-h-dvh w-full max-w-[calc(100vw-0.5rem)] flex-col items-stretch justify-center px-3 py-6 pb-[max(1.5rem,calc(env(safe-area-inset-bottom)+1rem))] pt-[max(0.75rem,env(safe-area-inset-top))] sm:max-w-none sm:px-4 sm:py-8">
+            <div
+              className={`mx-auto flex min-h-0 w-full flex-col overflow-hidden rounded-xl border border-zinc-700 bg-zinc-900 shadow-2xl ${
+                transferLignes.length > 0 || transferDetailLoading
+                  ? "h-[calc(100dvh-1.75rem-env(safe-area-inset-top,0)-env(safe-area-inset-bottom,0))] max-h-[calc(100dvh-1.75rem-env(safe-area-inset-top,0)-env(safe-area-inset-bottom,0))] max-w-4xl"
+                  : "max-h-[min(calc(100dvh-2rem),28rem)] max-w-md overflow-y-auto"
+              }`}
+            >
+            <div className="shrink-0 border-b border-zinc-800 px-5 py-4 sm:px-6 sm:py-5">
+              <h3 className="text-lg font-semibold text-white">Transférer en facture</h3>
+              <p className="mt-2 text-pretty text-sm leading-relaxed text-zinc-300">
+                Devis{" "}
+                <span className="font-semibold text-white">
+                  {pendingTransfer.numero
+                    ? formatNumeroDisplay(pendingTransfer.numero)
+                    : pendingTransfer.id}
+                </span>
+                {transferLignes.length > 0
+                  ? " : ajuste chaque ligne (quantité, prix unitaire HT) et le taux de TVA si besoin. Les totaux se mettent à jour automatiquement."
+                  : " : si le détail ne contient pas de lignes, saisis le total TTC souhaité."}
               </p>
-              <label className="block text-zinc-200">
-                <span className="text-xs text-zinc-500">Total TTC</span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={transferEditTtc}
-                  onChange={(e) => {
-                    setTransferEditTtc(e.target.value);
-                    setTransferPriceValidated(false);
-                  }}
-                  disabled={transferringId === pendingTransfer.id}
-                  className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500 disabled:opacity-50"
-                  placeholder="0"
-                  autoComplete="off"
-                />
-              </label>
-              <p className="text-xs text-zinc-500">
-                HT et TVA ne sont pas affichés ici : le backend reçoit tout de même une
-                répartition cohérente (proportionnelle au devis) pour le même TTC.
-              </p>
+
+              {transferDetailLoading ? (
+                <p className="mt-3 text-sm text-zinc-400">Chargement des lignes du devis…</p>
+              ) : null}
+              {transferDetailError ? (
+                <p className="mt-3 rounded-md border border-amber-800/50 bg-amber-950/25 px-3 py-2 text-sm text-amber-100">
+                  {transferDetailError} Tu peux quand même utiliser le total TTC ci-dessous si le
+                  devis a des montants connus.
+                </p>
+              ) : null}
             </div>
-            <label className="mt-4 flex cursor-pointer items-start gap-3 text-sm text-zinc-300">
-              <input
-                type="checkbox"
-                checked={transferPriceValidated}
-                onChange={(e) => setTransferPriceValidated(e.target.checked)}
-                disabled={transferringId === pendingTransfer.id}
-                className="mt-0.5 size-4 shrink-0 rounded border-zinc-600 bg-zinc-950 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
-              />
-              <span>
-                Je confirme le total TTC saisi et j&apos;accepte de créer la facture avec ce
-                montant.
-              </span>
-            </label>
-            <div className="mt-5 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setTransferPriceValidated(false);
-                  setTransferEditTtc("");
-                  setPendingTransfer(null);
-                }}
-                disabled={transferringId === pendingTransfer.id}
-                className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Annuler
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  const ttc = parseTransferTtcInput();
-                  if (ttc === null) return;
-                  const totals = buildTransferTotalsFromTtc(pendingTransfer, ttc);
-                  void handleTransferToFacture(pendingTransfer, totals);
-                }}
-                disabled={
-                  transferringId === pendingTransfer.id || !transferPriceValidated
-                }
-                className="rounded-md border border-indigo-700 bg-indigo-700/80 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {transferringId === pendingTransfer.id
-                  ? "Transfert..."
-                  : "Transférer en facture"}
-              </button>
+
+            <div
+              className={
+                transferLignes.length > 0 || transferDetailLoading
+                  ? "min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 py-4 sm:px-6"
+                  : "px-5 py-4 sm:px-6"
+              }
+            >
+            {transferLignes.length > 0 ? (
+              <div className="mt-4 space-y-3">
+                <div className="-mx-1 overflow-x-auto rounded-lg border border-zinc-700 bg-zinc-950/80 sm:mx-0">
+                  <table className="w-full min-w-xl table-fixed text-left text-sm">
+                    <colgroup>
+                      <col className="w-[46%]" />
+                      <col className="w-[12%]" />
+                      <col className="w-[22%]" />
+                      <col className="w-[20%]" />
+                    </colgroup>
+                    <thead className="bg-zinc-900 text-[10px] font-medium uppercase tracking-wider text-zinc-500">
+                      <tr>
+                        <th className="px-3 py-2">Désignation</th>
+                        <th className="px-2 py-2">Qté</th>
+                        <th className="px-2 py-2">PU HT (MAD)</th>
+                        <th className="px-3 py-2 text-right">Total HT</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {transferLignes.map((ligne, idx) => {
+                        const ligneHt =
+                          Math.round(ligne.quantite * ligne.prixUnitaireHt * 100) / 100;
+                        return (
+                          <tr key={`transfer-ligne-${idx}`} className="border-t border-zinc-800">
+                            <td className="px-3 py-3 align-top text-zinc-200">
+                              <div className="wrap-break-word font-medium leading-snug">
+                                {ligne.titre}
+                              </div>
+                              {ligne.description ? (
+                                <div className="mt-2 whitespace-pre-wrap wrap-break-word text-xs leading-relaxed text-zinc-500">
+                                  {ligne.description}
+                                </div>
+                              ) : null}
+                            </td>
+                            <td className="px-2 py-3 align-top">
+                              <input
+                                type="number"
+                                min={1}
+                                step={1}
+                                value={ligne.quantite}
+                                onChange={(e) =>
+                                  patchTransferLigneAt(idx, {
+                                    quantite: Math.max(
+                                      1,
+                                      Number.parseInt(e.target.value || "1", 10) || 1,
+                                    ),
+                                  })
+                                }
+                                disabled={transferringId === pendingTransfer.id}
+                                className="w-full min-w-0 rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-zinc-100 outline-none focus:border-zinc-500 disabled:opacity-50"
+                              />
+                            </td>
+                            <td className="px-2 py-3 align-top">
+                              <input
+                                type="number"
+                                min={0}
+                                step={0.01}
+                                value={
+                                  Number.isFinite(ligne.prixUnitaireHt)
+                                    ? ligne.prixUnitaireHt
+                                    : 0
+                                }
+                                onChange={(e) => {
+                                  const v = Number.parseFloat(e.target.value);
+                                  patchTransferLigneAt(idx, {
+                                    prixUnitaireHt: Number.isFinite(v) && v >= 0 ? v : 0,
+                                  });
+                                }}
+                                disabled={transferringId === pendingTransfer.id}
+                                className="w-full min-w-0 rounded-md border border-zinc-700 bg-zinc-950 px-2 py-1.5 text-zinc-100 outline-none focus:border-zinc-500 disabled:opacity-50"
+                              />
+                            </td>
+                            <td className="px-3 py-3 align-top text-right font-mono text-sm text-zinc-200">
+                              {formatMad(ligneHt)}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                <div className="flex flex-wrap items-end gap-4">
+                  <label className="text-sm text-zinc-200">
+                    <span className="block text-xs text-zinc-500">TVA (%)</span>
+                    <input
+                      type="number"
+                      min={0}
+                      max={100}
+                      step={0.01}
+                      value={transferTvaRate}
+                      onChange={(e) => {
+                        setTransferPriceValidated(false);
+                        const v = Number.parseFloat(e.target.value.replace(",", "."));
+                        if (Number.isFinite(v) && v >= 0 && v <= 100) {
+                          setTransferTvaRate(Math.round(v * 100) / 100);
+                        }
+                      }}
+                      disabled={transferringId === pendingTransfer.id}
+                      className="mt-1 w-28 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-zinc-100 outline-none focus:border-zinc-500 disabled:opacity-50"
+                    />
+                  </label>
+                </div>
+                <div className="space-y-1 rounded-lg border border-zinc-700 bg-zinc-950/80 p-4 font-mono text-sm text-zinc-200">
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Total HT</span>
+                    <span>{formatMad(transferLineTotals.totalHt)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-zinc-500">Montant TVA</span>
+                    <span>{formatMad(transferLineTotals.montantTva)}</span>
+                  </div>
+                  <div className="flex justify-between border-t border-zinc-800 pt-2 font-medium text-white">
+                    <span>Total TTC</span>
+                    <span>{formatMad(transferLineTotals.totalTtc)}</span>
+                  </div>
+                </div>
+              </div>
+            ) : !transferDetailLoading ? (
+              <div className="mt-4 space-y-2 rounded-lg border border-zinc-700 bg-zinc-950/80 p-4 font-mono text-sm">
+                <p className="text-[10px] uppercase tracking-widest text-zinc-500">
+                  Prix (MAD) — saisie manuelle
+                </p>
+                <label className="block text-zinc-200">
+                  <span className="text-xs text-zinc-500">Total TTC</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={transferEditTtc}
+                    onChange={(e) => {
+                      setTransferEditTtc(e.target.value);
+                      setTransferPriceValidated(false);
+                    }}
+                    disabled={transferringId === pendingTransfer.id}
+                    className="mt-1 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-100 outline-none focus:border-zinc-500 disabled:opacity-50"
+                    placeholder="0"
+                    autoComplete="off"
+                  />
+                </label>
+                <p className="text-xs text-zinc-500">
+                  Sans lignes sur le devis, le backend reçoit une répartition HT / TVA
+                  proportionnelle aux totaux connus du devis pour ce TTC.
+                </p>
+              </div>
+            ) : null}
+            </div>
+
+            <div className="shrink-0 border-t border-zinc-800 bg-zinc-900 px-5 py-4 sm:px-6">
+              <label className="flex cursor-pointer items-start gap-3 text-pretty text-sm leading-relaxed text-zinc-300">
+                <input
+                  type="checkbox"
+                  checked={transferPriceValidated}
+                  onChange={(e) => setTransferPriceValidated(e.target.checked)}
+                  disabled={transferringId === pendingTransfer.id}
+                  className="mt-0.5 size-4 shrink-0 rounded border-zinc-600 bg-zinc-950 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50"
+                />
+                <span>
+                  {transferLignes.length > 0
+                    ? "Je confirme les lignes, le taux de TVA et les totaux affichés, et j’accepte de créer la facture avec ces montants."
+                    : "Je confirme le total TTC saisi et j’accepte de créer la facture avec ce montant."}
+                </span>
+              </label>
+              <div className="mt-4 flex flex-wrap justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={closeTransferModal}
+                  disabled={transferringId === pendingTransfer.id}
+                  className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Annuler
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!pendingTransfer) return;
+                    if (transferLignes.length > 0) {
+                      const invalid = transferLignes.some(
+                        (l) =>
+                          !Number.isFinite(l.quantite) ||
+                          l.quantite < 1 ||
+                          !Number.isFinite(l.prixUnitaireHt) ||
+                          l.prixUnitaireHt < 0,
+                      );
+                      if (invalid) {
+                        toast.error("Vérifie les quantités (≥ 1) et les prix unitaires HT (≥ 0).");
+                        return;
+                      }
+                      if (
+                        !Number.isFinite(transferTvaRate) ||
+                        transferTvaRate < 0 ||
+                        transferTvaRate > 100
+                      ) {
+                        toast.error("TVA % invalide (entre 0 et 100).");
+                        return;
+                      }
+                      void handleTransferToFacture(pendingTransfer, transferLineTotals, {
+                        lignes: transferLignes,
+                        tvaTaux: transferTvaRate,
+                      });
+                      return;
+                    }
+                    const ttc = parseTransferTtcInput();
+                    if (ttc === null) return;
+                    const totals = buildTransferTotalsFromTtc(pendingTransfer, ttc);
+                    void handleTransferToFacture(pendingTransfer, totals);
+                  }}
+                  disabled={
+                    transferringId === pendingTransfer.id ||
+                    !transferPriceValidated ||
+                    transferDetailLoading
+                  }
+                  className="rounded-md border border-indigo-700 bg-indigo-700/80 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {transferringId === pendingTransfer.id
+                    ? "Transfert..."
+                    : "Transférer en facture"}
+                </button>
+              </div>
+            </div>
             </div>
           </div>
         </div>

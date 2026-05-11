@@ -5,7 +5,7 @@ import { Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   deleteClient,
-  fetchClientsList,
+  fetchClientsListDetailed,
   fetchDevisList,
   fetchFacturesList,
   isDerivedSyntheticClientId,
@@ -77,13 +77,13 @@ export function ClientsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [apiClients, devis, factures] = await Promise.all([
-        fetchClientsList(),
+      const [{ clients: apiClients, authoritativeFromApi }, devis, factures] = await Promise.all([
+        fetchClientsListDetailed(),
         fetchDevisList(),
         fetchFacturesList(),
       ]);
 
-      if (apiClients.length > 0) {
+      if (authoritativeFromApi) {
         setRows(apiClients);
         setSource("api");
       } else {

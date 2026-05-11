@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Download } from "lucide-react";
+import { ArrowLeft, Download, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
   defaultDevisForm,
@@ -74,20 +74,28 @@ export function NouveauDevisPage({ mode = "devis" }: NouveauDevisPageProps) {
           paiementRib: devis.paiementRib ?? prev.paiementRib,
           lignes:
             devis.lignes && devis.lignes.length > 0
-              ? prev.lignes.map((line, idx) => ({
-                  ...line,
-                  id: devis.lignes?.[idx]?.id ?? line.id,
-                  titre: devis.lignes?.[idx]?.titre ?? line.titre,
-                  description: devis.lignes?.[idx]?.description ?? line.description,
-                  quantite:
-                    typeof devis.lignes?.[idx]?.quantite === "number"
-                      ? (devis.lignes[idx].quantite as number)
-                      : line.quantite,
-                  prixUnitaireHt:
-                    typeof devis.lignes?.[idx]?.prixUnitaireHt === "number"
-                      ? (devis.lignes[idx].prixUnitaireHt as number)
-                      : line.prixUnitaireHt,
-                }))
+              ? devis.lignes.map((l, idx) => {
+                  const row = l as {
+                    id?: string;
+                    titre?: string;
+                    description?: string;
+                    quantite?: number;
+                    prixUnitaireHt?: number;
+                  };
+                  return {
+                    id: row.id && String(row.id).length > 0 ? String(row.id) : crypto.randomUUID(),
+                    titre: String(row.titre ?? "").trim() || `Ligne ${idx + 1}`,
+                    description: String(row.description ?? ""),
+                    quantite:
+                      typeof row.quantite === "number" && Number.isFinite(row.quantite)
+                        ? Math.max(1, Math.floor(row.quantite))
+                        : 1,
+                    prixUnitaireHt:
+                      typeof row.prixUnitaireHt === "number" && Number.isFinite(row.prixUnitaireHt)
+                        ? Math.max(0, row.prixUnitaireHt)
+                        : 0,
+                  };
+                })
               : prev.lignes,
         }));
       } catch (e) {
@@ -127,6 +135,29 @@ export function NouveauDevisPage({ mode = "devis" }: NouveauDevisPageProps) {
     }));
   };
 
+  const addLigne = () => {
+    setData((d) => ({
+      ...d,
+      lignes: [
+        ...d.lignes,
+        {
+          id: crypto.randomUUID(),
+          titre: "",
+          description: "",
+          quantite: 1,
+          prixUnitaireHt: 0,
+        },
+      ],
+    }));
+  };
+
+  const removeLigne = (id: string) => {
+    setData((d) => {
+      if (d.lignes.length <= 1) return d;
+      return { ...d, lignes: d.lignes.filter((l) => l.id !== id) };
+    });
+  };
+
   const syncNumeroFromServer = async (id: string) => {
     const full = isFacture ? await fetchFactureById(id) : await fetchDevisById(id);
     if (full.numero) {
@@ -150,11 +181,21 @@ export function NouveauDevisPage({ mode = "devis" }: NouveauDevisPageProps) {
     ) {
       return "Email client invalide.";
     }
+    const emptyTitreIndex = data.lignes.findIndex((ligne) => !ligne.titre.trim());
+    if (emptyTitreIndex !== -1) {
+      return `Ligne ${emptyTitreIndex + 1} : le titre (désignation) est obligatoire.`;
+    }
     const invalidLineIndex = data.lignes.findIndex(
       (ligne) => !Number.isFinite(ligne.quantite) || ligne.quantite < 1,
     );
     if (invalidLineIndex !== -1) {
       return `La quantité de la ligne ${invalidLineIndex + 1} doit être au minimum 1.`;
+    }
+    const invalidPuIndex = data.lignes.findIndex(
+      (ligne) => !Number.isFinite(ligne.prixUnitaireHt) || ligne.prixUnitaireHt < 0,
+    );
+    if (invalidPuIndex !== -1) {
+      return `Ligne ${invalidPuIndex + 1} : prix unitaire HT invalide (nombre ≥ 0).`;
     }
     return null;
   };
@@ -505,33 +546,67 @@ export function NouveauDevisPage({ mode = "devis" }: NouveauDevisPageProps) {
               <h2 className="font-mono text-xs uppercase tracking-widest text-zinc-300">
                 Lignes
               </h2>
-              <span className="font-mono text-[10px] uppercase tracking-widest text-zinc-500">
-                Désignation et prix unitaires fixes
-              </span>
+              <button
+                type="button"
+                onClick={addLigne}
+                className="inline-flex items-center gap-1.5 rounded-md border border-indigo-600 bg-indigo-600/90 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-white hover:bg-indigo-500"
+              >
+                <Plus className="size-3.5" aria-hidden />
+                Ajouter une ligne
+              </button>
             </div>
+            <p className="mt-2 font-mono text-[10px] uppercase tracking-widest text-zinc-500">
+              Désignation, description et prix unitaire HT par ligne (minimum 1 ligne).
+            </p>
             <div className="mt-4 grid gap-4 lg:grid-cols-2">
               {data.lignes.map((ligne, index) => (
                 <div
                   key={ligne.id}
                   className="rounded border border-zinc-700 p-3"
                 >
-                  <div className="mb-2 flex items-center justify-between">
+                  <div className="mb-2 flex items-center justify-between gap-2">
                     <span className="font-mono text-[10px] uppercase text-zinc-500">
                       Ligne {index + 1}
                     </span>
+                    <button
+                      type="button"
+                      onClick={() => removeLigne(ligne.id)}
+                      disabled={data.lignes.length <= 1}
+                      title={
+                        data.lignes.length <= 1
+                          ? "Au moins une ligne est obligatoire"
+                          : "Supprimer cette ligne"
+                      }
+                      className="inline-flex items-center justify-center rounded border border-red-700/50 p-1 text-red-300 hover:bg-red-900/30 disabled:cursor-not-allowed disabled:opacity-30"
+                      aria-label="Supprimer la ligne"
+                    >
+                      <Trash2 className="size-3.5" aria-hidden />
+                    </button>
                   </div>
                   <div className="grid gap-2">
                     <div>
                       <label className={labelClass}>Titre (désignation)</label>
-                      <div className="mt-1 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm font-semibold text-zinc-200">
-                        {ligne.titre}
-                      </div>
+                      <input
+                        type="text"
+                        className={fieldClass}
+                        value={ligne.titre}
+                        onChange={(e) => updateLigne(ligne.id, { titre: e.target.value })}
+                        maxLength={200}
+                        placeholder="Ex. Prestation conseil"
+                      />
                     </div>
                     <div>
                       <label className={labelClass}>Description</label>
-                      <div className="mt-1 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-300">
-                        {ligne.description}
-                      </div>
+                      <textarea
+                        className={`${fieldClass} min-h-[72px]`}
+                        value={ligne.description}
+                        onChange={(e) =>
+                          updateLigne(ligne.id, { description: e.target.value })
+                        }
+                        rows={3}
+                        maxLength={2000}
+                        placeholder="Détail de la prestation…"
+                      />
                     </div>
                     <div className="grid grid-cols-2 gap-2">
                       <div>
@@ -554,14 +629,25 @@ export function NouveauDevisPage({ mode = "devis" }: NouveauDevisPageProps) {
                       </div>
                       <div>
                         <label className={labelClass}>Prix unitaire HT (MAD)</label>
-                        <div className="mt-1 rounded-md border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm font-medium text-zinc-200">
-                          {money(ligne.prixUnitaireHt)}
-                        </div>
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          className={fieldClass}
+                          value={Number.isFinite(ligne.prixUnitaireHt) ? ligne.prixUnitaireHt : 0}
+                          onChange={(e) => {
+                            const v = Number.parseFloat(e.target.value);
+                            updateLigne(ligne.id, {
+                              prixUnitaireHt: Number.isFinite(v) && v >= 0 ? v : 0,
+                            });
+                          }}
+                        />
                       </div>
                     </div>
                     <p className="text-right text-xs text-zinc-400">
                       Total ligne HT :{" "}
-                      <strong>{ligneTotalHt(ligne).toFixed(2)} MAD</strong>
+                      <strong>{ligneTotalHt(ligne).toFixed(2)} MAD</strong>{" "}
+                      <span className="text-zinc-500">({money(ligne.prixUnitaireHt)} × {ligne.quantite})</span>
                     </p>
                   </div>
                 </div>
