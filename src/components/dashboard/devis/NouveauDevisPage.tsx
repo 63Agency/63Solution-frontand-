@@ -18,9 +18,11 @@ import {
   fetchDevisById,
   fetchFactureById,
   downloadDevisPdf,
+  registerDevisClientInDirectory,
   toBackendDevisPayload,
   updateFacture,
   updateDevis,
+  type BackendDevisPayload,
 } from "../../../../lib/devis/backend-devis";
 
 type NouveauDevisPageProps = {
@@ -204,6 +206,25 @@ export function NouveauDevisPage({ mode = "devis" }: NouveauDevisPageProps) {
     window.print();
   };
 
+  const registerClientForDocument = async (
+    payload: Pick<
+      BackendDevisPayload,
+      "clientNom" | "clientEmail" | "clientTelephone" | "clientIce"
+    >,
+  ): Promise<boolean> => {
+    try {
+      const registered = await registerDevisClientInDirectory(payload);
+      return registered !== null;
+    } catch (clientErr) {
+      toast.warning(
+        clientErr instanceof Error
+          ? `Carnet clients : ${clientErr.message}`
+          : "Ajout au carnet clients impossible.",
+      );
+      return false;
+    }
+  };
+
   const handleSaveDraft = async () => {
     const validationError = validateBeforeSubmit();
     if (validationError) {
@@ -213,6 +234,8 @@ export function NouveauDevisPage({ mode = "devis" }: NouveauDevisPageProps) {
     setBusy("saving");
     try {
       const payload = toBackendDevisPayload(data, { includeNumero: !isFacture });
+      const clientInDirectory = await registerClientForDocument(payload);
+
       if (devisId) {
         const updated = isFacture
           ? await updateFacture(devisId, payload)
@@ -222,7 +245,11 @@ export function NouveauDevisPage({ mode = "devis" }: NouveauDevisPageProps) {
         } else {
           await syncNumeroFromServer(devisId);
         }
-        toast.success(`${docLabel} mis à jour (brouillon).`);
+        toast.success(
+          clientInDirectory
+            ? `${docLabel} mis à jour. Client ajouté au carnet.`
+            : `${docLabel} mis à jour (brouillon).`,
+        );
       } else {
         const created = isFacture ? await createFacture(payload) : await createDevis(payload);
         setDevisId(created.id);
@@ -231,7 +258,11 @@ export function NouveauDevisPage({ mode = "devis" }: NouveauDevisPageProps) {
         } else {
           await syncNumeroFromServer(created.id);
         }
-        toast.success(`${docLabel} créé sur le serveur.`);
+        toast.success(
+          clientInDirectory
+            ? `${docLabel} créé. Client ajouté au carnet.`
+            : `${docLabel} créé sur le serveur.`,
+        );
         router.push(isFacture ? "/dashboard/factures?tab=factures" : "/dashboard/factures?tab=devis");
         router.refresh();
       }
@@ -251,6 +282,7 @@ export function NouveauDevisPage({ mode = "devis" }: NouveauDevisPageProps) {
     setBusy("downloading");
     try {
       const payload = toBackendDevisPayload(data, { includeNumero: !isFacture });
+      await registerClientForDocument(payload);
       let activeId = devisId;
 
       if (activeId) {

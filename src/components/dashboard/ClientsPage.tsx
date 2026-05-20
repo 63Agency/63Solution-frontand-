@@ -6,62 +6,23 @@ import { toast } from "sonner";
 import {
   deleteClient,
   fetchClientsListDetailed,
-  fetchDevisList,
-  fetchFacturesList,
   isDerivedSyntheticClientId,
   updateClient,
   type BackendClientRecord,
   type BackendClientUpdatePayload,
-  type BackendDevisListItem,
 } from "../../../lib/devis/backend-devis";
 
-type ClientSource = "api" | "derived";
-
-function dedupeKeyFromDoc(row: BackendDevisListItem): string | null {
-  const email = (row.clientEmail || "").toLowerCase().trim();
-  if (email) return `e:${email}`;
-  const ice = (row.clientIce || "").trim();
-  if (ice) return `i:${ice}`;
-  const nom = (row.clientNom || "").trim().toLowerCase();
-  if (nom) return `n:${nom}`;
-  return null;
-}
-
-function buildClientsFromDocuments(
-  devis: BackendDevisListItem[],
-  factures: BackendDevisListItem[],
-): BackendClientRecord[] {
-  const merge = new Map<
-    string,
-    { clientNom?: string; clientEmail?: string; clientTelephone?: string; clientIce?: string }
-  >();
-
-  const absorb = (row: BackendDevisListItem) => {
-    const k = dedupeKeyFromDoc(row);
-    if (!k) return;
-    const cur = merge.get(k) ?? {};
-    merge.set(k, {
-      clientNom: row.clientNom?.trim() || cur.clientNom,
-      clientEmail: row.clientEmail?.trim() || cur.clientEmail,
-      clientTelephone: row.clientTelephone?.trim() || cur.clientTelephone,
-      clientIce: row.clientIce?.trim() || cur.clientIce,
-    });
-  };
-
-  for (const d of devis) absorb(d);
-  for (const f of factures) absorb(f);
-
-  return Array.from(merge.entries()).map(([id, v]) => ({
-    id,
-    ...v,
-  }));
-}
+type ClientSource = "api" | "unavailable";
 
 const emailOk = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
+function canManageClient(row: BackendClientRecord): boolean {
+  return !isDerivedSyntheticClientId(row.id);
+}
+
 export function ClientsPage() {
   const [rows, setRows] = useState<BackendClientRecord[]>([]);
-  const [source, setSource] = useState<ClientSource>("derived");
+  const [source, setSource] = useState<ClientSource>("unavailable");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<BackendClientRecord | null>(null);
@@ -77,18 +38,17 @@ export function ClientsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [{ clients: apiClients, authoritativeFromApi }, devis, factures] = await Promise.all([
-        fetchClientsListDetailed(),
-        fetchDevisList(),
-        fetchFacturesList(),
-      ]);
+      const { clients: apiClients, authoritativeFromApi } = await fetchClientsListDetailed();
 
       if (authoritativeFromApi) {
         setRows(apiClients);
         setSource("api");
       } else {
-        setRows(buildClientsFromDocuments(devis, factures));
-        setSource("derived");
+        setRows([]);
+        setSource("unavailable");
+        setError(
+          "GET /clients indisponible. Le carnet clients est indépendant des devis, factures et propositions.",
+        );
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Impossible de charger les clients.");
@@ -103,9 +63,9 @@ export function ClientsPage() {
   }, [loadClients]);
 
   const openEdit = (row: BackendClientRecord) => {
-    if (isDerivedSyntheticClientId(row.id)) {
+    if (!canManageClient(row)) {
       toast.error(
-        "Ce client vient uniquement des devis/factures (sans id serveur). Il faut GET/PATCH /clients côté API pour modifier.",
+        "Ce client n’a pas d’identifiant serveur. Crée-le ou modifie-le via GET/PATCH /clients.",
       );
       return;
     }
@@ -155,7 +115,7 @@ export function ClientsPage() {
 
   const handleConfirmDelete = async () => {
     if (!pendingDelete) return;
-    if (isDerivedSyntheticClientId(pendingDelete.id)) {
+    if (!canManageClient(pendingDelete)) {
       toast.error("Suppression impossible : id client non serveur.");
       setPendingDelete(null);
       return;
@@ -166,7 +126,7 @@ export function ClientsPage() {
       setRows((prev) => prev.filter((r) => r.id !== pendingDelete.id));
       setPendingDelete(null);
       if (editing?.id === pendingDelete.id) setEditing(null);
-      toast.success("Client supprimé.");
+      toast.success("Client supprimé du carnet (les devis, factures et propositions existants ne sont pas supprimés).");
       await loadClients();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Suppression impossible.");
@@ -181,9 +141,9 @@ export function ClientsPage() {
         <p className="font-mono text-xs uppercase tracking-widest text-zinc-500">Carnet</p>
         <h1 className="text-3xl font-semibold leading-tight text-white">Clients</h1>
         <p className="max-w-xl text-sm text-zinc-400">
-          {source === "api"
-            ? "Liste fournie par l’API (GET /clients). Modification et suppression si l’id vient du serveur."
-            : "Liste déduite des devis et factures : modifier / supprimer nécessite une API clients (PATCH / DELETE /clients/:id)."}
+          Carnet clients (GET /clients). Créer ou enregistrer une proposition, un devis ou une
+          facture avec un nom client appelle POST /clients. Supprimer un document ne supprime pas un
+          client ici.
         </p>
       </header>
 
@@ -194,6 +154,7 @@ export function ClientsPage() {
               <h2 className="text-base font-medium text-white">Répertoire</h2>
               <p className="font-mono text-[11px] uppercase tracking-widest text-zinc-500">
                 {loading ? "Chargement…" : `${rows.length} client(s)`}
+                {source === "api" ? " — API" : ""}
               </p>
             </div>
           </div>
@@ -204,8 +165,7 @@ export function ClientsPage() {
             <p className="py-8 text-center text-sm text-zinc-500">Chargement des clients…</p>
           ) : rows.length === 0 ? (
             <p className="py-8 text-center text-sm text-zinc-500">
-              Aucun client trouvé. Crée un devis avec les coordonnées client, ou branche GET
-              /clients côté backend.
+              Aucun client dans le carnet. Ajoute des clients via l’API (POST /clients).
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -221,7 +181,7 @@ export function ClientsPage() {
                 </thead>
                 <tbody>
                   {rows.map((row) => {
-                    const canEdit = !isDerivedSyntheticClientId(row.id);
+                    const canEdit = canManageClient(row);
                     return (
                       <tr
                         key={row.id}
@@ -237,11 +197,7 @@ export function ClientsPage() {
                               type="button"
                               onClick={() => openEdit(row)}
                               disabled={!canEdit || deletingId === row.id}
-                              title={
-                                canEdit
-                                  ? "Modifier le client"
-                                  : "Id client non serveur — API /clients requise"
-                              }
+                              title={canEdit ? "Modifier le client" : "Id client non serveur"}
                               className="inline-flex items-center justify-center rounded border border-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
                               aria-label="Modifier le client"
                             >
@@ -251,11 +207,7 @@ export function ClientsPage() {
                               type="button"
                               onClick={() => setPendingDelete(row)}
                               disabled={!canEdit || deletingId === row.id}
-                              title={
-                                canEdit
-                                  ? "Supprimer le client"
-                                  : "Id client non serveur — API /clients requise"
-                              }
+                              title={canEdit ? "Supprimer le client du carnet" : "Id client non serveur"}
                               className="inline-flex items-center justify-center rounded border border-red-700/60 p-1.5 text-red-300 hover:bg-red-900/30 disabled:cursor-not-allowed disabled:opacity-40"
                               aria-label="Supprimer le client"
                             >
@@ -282,7 +234,11 @@ export function ClientsPage() {
               <span className="font-semibold text-white">
                 {pendingDelete.clientNom || pendingDelete.clientEmail || pendingDelete.id}
               </span>{" "}
-              ? Cette action est irréversible côté serveur.
+              du carnet clients ?
+              <span className="mt-2 block text-zinc-400">
+                Les devis, factures et propositions déjà créés ne sont pas supprimés ; seules leurs
+                coordonnées client sur le document restent inchangées.
+              </span>
             </p>
             <div className="mt-5 flex justify-end gap-2">
               <button

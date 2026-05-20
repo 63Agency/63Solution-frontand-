@@ -598,8 +598,8 @@ export type FetchClientsListResult = {
 };
 
 /**
- * Liste des clients. Si `authoritativeFromApi` est false, l’endpoint n’a pas répondu OK (404 / erreur) —
- * l’UI peut alors dériver les contacts depuis les devis/factures.
+ * Liste des clients (GET /clients uniquement).
+ * Si `authoritativeFromApi` est false, l’endpoint n’a pas répondu OK — ne plus dériver depuis les documents.
  */
 export async function fetchClientsListDetailed(): Promise<FetchClientsListResult> {
   const base = getApiBaseUrl();
@@ -643,6 +643,124 @@ export async function fetchClientsListDetailed(): Promise<FetchClientsListResult
 export async function fetchClientsList(): Promise<BackendClientRecord[]> {
   const r = await fetchClientsListDetailed();
   return r.clients;
+}
+
+function clientDedupeKey(payload: BackendClientUpdatePayload): string | null {
+  const email = payload.clientEmail.trim().toLowerCase();
+  if (email) return `e:${email}`;
+  const ice = payload.clientIce.trim();
+  if (ice) return `i:${ice}`;
+  const nom = payload.clientNom.trim().toLowerCase();
+  if (nom) return `n:${nom}`;
+  return null;
+}
+
+/** Cherche un client déjà présent dans GET /clients (email, ICE ou nom). */
+export async function findClientInDirectory(
+  payload: BackendClientUpdatePayload,
+): Promise<BackendClientRecord | null> {
+  const key = clientDedupeKey(payload);
+  if (!key) return null;
+
+  const { clients, authoritativeFromApi } = await fetchClientsListDetailed();
+  if (!authoritativeFromApi) return null;
+
+  for (const row of clients) {
+    if (isDerivedSyntheticClientId(row.id)) continue;
+    const rowKey = clientDedupeKey({
+      clientNom: row.clientNom ?? "",
+      clientEmail: row.clientEmail ?? "",
+      clientTelephone: row.clientTelephone ?? "",
+      clientIce: row.clientIce ?? "",
+    });
+    if (rowKey === key) return row;
+  }
+  return null;
+}
+
+/** Crée un client dans le carnet (POST /clients). */
+export async function createClient(
+  payload: BackendClientUpdatePayload,
+): Promise<BackendClientRecord> {
+  const base = getApiBaseUrl();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL manquante.");
+
+  const token = getStoredAccessToken();
+  if (!token) throw new Error("Session expirée. Reconnecte-toi.");
+
+  const res = await fetch(`${base}/clients`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    if (res.status === 404) {
+      const preview = await res.clone().text().catch(() => "");
+      if (/cannot\s+post\s+\/clients/i.test(preview)) {
+        throw new Error(
+          "Le backend n’expose pas POST /clients (404). Ajoute la route côté Nest — voir docs/BACKEND-CLIENTS.md.",
+        );
+      }
+    }
+    return parseApiError(res, "POST /clients", payload);
+  }
+
+  const raw = (await res.json().catch(() => null)) as unknown;
+  const parsed = parseBackendClientRecord(raw);
+  if (parsed) return parsed;
+  throw new Error("Réponse backend invalide après création client.");
+}
+
+/**
+ * Ajoute le client au carnet s’il n’y est pas déjà (indépendant des documents).
+ * Ne supprime rien si un devis / facture / proposition est supprimé plus tard.
+ */
+export async function registerClientInDirectory(
+  payload: BackendClientUpdatePayload,
+): Promise<BackendClientRecord | null> {
+  const nom = payload.clientNom.trim();
+  if (!nom) return null;
+
+  const existing = await findClientInDirectory(payload);
+  if (existing) return existing;
+
+  try {
+    return await createClient(payload);
+  } catch (e) {
+    const again = await findClientInDirectory(payload);
+    if (again) return again;
+    throw e;
+  }
+}
+
+/** Coordonnées client depuis un devis / facture → carnet GET /clients. */
+export function clientPayloadFromDevisPayload(
+  payload: Pick<
+    BackendDevisPayload,
+    "clientNom" | "clientEmail" | "clientTelephone" | "clientIce"
+  >,
+): BackendClientUpdatePayload {
+  return {
+    clientNom: payload.clientNom.trim(),
+    clientEmail: payload.clientEmail.trim(),
+    clientTelephone: payload.clientTelephone.trim(),
+    clientIce: payload.clientIce.trim(),
+  };
+}
+
+/** POST /clients si le client n’existe pas encore (devis ou facture). */
+export async function registerDevisClientInDirectory(
+  payload: Pick<
+    BackendDevisPayload,
+    "clientNom" | "clientEmail" | "clientTelephone" | "clientIce"
+  >,
+): Promise<BackendClientRecord | null> {
+  return registerClientInDirectory(clientPayloadFromDevisPayload(payload));
 }
 
 /** Ids générés côté front (liste dérivée e:/i:/n: ou fallback parse email:/ice:/nom:) — non PATCHables. */

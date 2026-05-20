@@ -8,11 +8,13 @@ import {
   Download,
   Eye,
   FilePlus2,
+  FileStack,
   FileText,
   Send,
   Plus,
   Trash2,
 } from "lucide-react";
+import { PropositionsSection } from "./proposition/PropositionsSection";
 import { toast } from "sonner";
 import {
   deleteFacture,
@@ -29,10 +31,11 @@ import {
   type TransferDevisToFactureLigne,
 } from "../../../lib/devis/backend-devis";
 
-type Tab = "devis" | "factures";
+type Tab = "devis" | "factures" | "propositions";
 
 const NOUVEAU_DEVIS_HREF = "/dashboard/factures/devis/nouveau";
 const NOUVELLE_FACTURE_HREF = "/dashboard/factures/facture/nouveau";
+const NOUVELLE_PROPOSITION_HREF = "/dashboard/factures/proposition/nouveau";
 const DEVIS_PER_PAGE = 10;
 type PendingDelete = {
   row: BackendDevisListItem;
@@ -113,10 +116,15 @@ export function FacturesDevisPage() {
 
   useEffect(() => {
     const raw = searchParams.get("tab");
-    if (raw === "devis" || raw === "factures") {
+    if (raw === "devis" || raw === "factures" || raw === "propositions") {
       setTab(raw);
     }
   }, [searchParams]);
+
+  const selectTab = (next: Tab) => {
+    setTab(next);
+    router.replace(`/dashboard/factures?tab=${next}`, { scroll: false });
+  };
 
   const formatMad = (value: number | undefined) =>
     value == null
@@ -536,12 +544,11 @@ export function FacturesDevisPage() {
             Facturation
           </p>
           <h1 className="text-4xl font-semibold leading-tight text-white">
-            Devis & factures
+            Devis, factures & propositions
           </h1>
         </div>
         <p className="max-w-md font-mono text-xs uppercase tracking-wider text-zinc-500">
-          Crée et suis tes devis, puis transforme-les en factures. Branchement
-          API à venir avec ton backend Nest.
+          Devis, factures et propositions commerciales — chaque type avec son propre modèle.
         </p>
       </header>
 
@@ -550,7 +557,7 @@ export function FacturesDevisPage() {
           <div className="flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => setTab("devis")}
+              onClick={() => selectTab("devis")}
               className={`border px-4 py-2 transition ${
                 tab === "devis"
                   ? "border-zinc-700 bg-zinc-800 text-white"
@@ -564,7 +571,7 @@ export function FacturesDevisPage() {
             </button>
             <button
               type="button"
-              onClick={() => setTab("factures")}
+              onClick={() => selectTab("factures")}
               className={`border px-4 py-2 transition ${
                 tab === "factures"
                   ? "border-zinc-700 bg-zinc-800 text-white"
@@ -576,13 +583,37 @@ export function FacturesDevisPage() {
                 Factures
               </span>
             </button>
+            <button
+              type="button"
+              onClick={() => selectTab("propositions")}
+              className={`border px-4 py-2 transition ${
+                tab === "propositions"
+                  ? "border-zinc-700 bg-zinc-800 text-white"
+                  : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200"
+              }`}
+            >
+              <span className="inline-flex items-center gap-2">
+                <FileStack className="size-4" aria-hidden />
+                Propositions
+              </span>
+            </button>
           </div>
           <Link
-            href={tab === "devis" ? NOUVEAU_DEVIS_HREF : NOUVELLE_FACTURE_HREF}
+            href={
+              tab === "devis"
+                ? NOUVEAU_DEVIS_HREF
+                : tab === "factures"
+                  ? NOUVELLE_FACTURE_HREF
+                  : NOUVELLE_PROPOSITION_HREF
+            }
             className="inline-flex items-center justify-center gap-2 rounded-md border border-indigo-500 bg-indigo-600 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white transition hover:bg-indigo-500"
           >
             <Plus className="size-4" aria-hidden />
-            {tab === "devis" ? "Nouveau devis" : "Nouvelle facture"}
+            {tab === "devis"
+              ? "Nouveau devis"
+              : tab === "factures"
+                ? "Nouvelle facture"
+                : "Nouvelle proposition"}
           </Link>
         </div>
 
@@ -764,7 +795,7 @@ export function FacturesDevisPage() {
               ) : null}
             </section>
           </div>
-        ) : (
+        ) : tab === "factures" ? (
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
             <section className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-5 lg:col-span-12 min-h-[200px]">
               <div className="mb-4">
@@ -925,6 +956,8 @@ export function FacturesDevisPage() {
               ) : null}
             </section>
           </div>
+        ) : (
+          <PropositionsSection />
         )}
       </div>
 

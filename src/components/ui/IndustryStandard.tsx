@@ -183,7 +183,7 @@ export type DashboardBusinessKpis = {
     pendingDevisMad: number;
     validatedFacturesMad: number;
     clientCount: number;
-    clientsSource: "api" | "derived";
+    clientsSource: "api" | "unavailable";
     loading: boolean;
     error: string | null;
 };

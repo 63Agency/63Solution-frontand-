@@ -17,17 +17,6 @@ function sumTotalTtc(rows: BackendDevisListItem[]): number {
   return rows.reduce((s, r) => s + (Number(r.totals?.totalTtc) || 0), 0);
 }
 
-/** Clé stable pour dédupliquer un client à partir des champs présents sur devis/facture. */
-function clientKeyFromRow(row: BackendDevisListItem): string {
-  const email = (row.clientEmail || "").toLowerCase().trim();
-  const ice = (row.clientIce || "").trim();
-  const nom = (row.clientNom || "").trim().toLowerCase();
-  if (email) return `e:${email}`;
-  if (ice) return `i:${ice}`;
-  if (nom) return `n:${nom}`;
-  return "";
-}
-
 const HIDDEN_CONVERTED_DEVIS_KEY = "hiddenConvertedDevisIds";
 
 function readHiddenConvertedDevisIds(): Set<string> {
@@ -51,28 +40,12 @@ function filterDevisForDashboard(
   return devis.filter((d) => !hiddenIds.has(d.id));
 }
 
-function countUniqueClientsFromDocs(
-  devis: BackendDevisListItem[],
-  factures: BackendDevisListItem[],
-): number {
-  const keys = new Set<string>();
-  for (const row of devis) {
-    const k = clientKeyFromRow(row);
-    if (k) keys.add(k);
-  }
-  for (const row of factures) {
-    const k = clientKeyFromRow(row);
-    if (k) keys.add(k);
-  }
-  return keys.size;
-}
-
 const initialKpis: DashboardBusinessKpis = {
   loading: true,
   pendingDevisMad: 0,
   validatedFacturesMad: 0,
   clientCount: 0,
-  clientsSource: "derived",
+  clientsSource: "unavailable",
   error: null,
 };
 
@@ -94,11 +67,10 @@ export function IndustryHomeContent() {
         const hiddenConverted = readHiddenConvertedDevisIds();
         const devisForTotals = filterDevisForDashboard(devis, hiddenConverted);
 
-        const derived = countUniqueClientsFromDocs(devisForTotals, factures);
         const clientCount = clientsResult.authoritativeFromApi
           ? clientsResult.clients.length
-          : derived;
-        const clientsSource = clientsResult.authoritativeFromApi ? "api" : "derived";
+          : 0;
+        const clientsSource = clientsResult.authoritativeFromApi ? "api" : "unavailable";
 
         setBusinessKpis({
           loading: false,

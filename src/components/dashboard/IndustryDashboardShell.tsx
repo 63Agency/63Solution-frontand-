@@ -20,7 +20,7 @@ export function IndustryDashboardShell({
     { href: "/dashboard", label: "Vue d'ensemble", icon: LayoutDashboard },
     {
       href: "/dashboard/factures",
-      label: "Devis & factures",
+      label: "Devis, factures & propositions",
       icon: FileText,
     },
     { href: "/dashboard/clients", label: "Clients", icon: Users },
