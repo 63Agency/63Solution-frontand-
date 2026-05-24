@@ -94,7 +94,7 @@ export function ChatThread({
     return (
       <div className="flex h-full flex-col items-center justify-center bg-zinc-950/50 p-8 text-center">
         <p className="max-w-sm text-sm text-zinc-500">
-          Sélectionne une conversation pour répondre aux leads WhatsApp (N8N + Wati).
+          Sélectionne une conversation pour répondre aux leads WhatsApp (Meta Cloud API).
         </p>
       </div>
     );

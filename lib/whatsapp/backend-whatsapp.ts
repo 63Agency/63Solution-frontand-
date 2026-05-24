@@ -65,8 +65,18 @@ function parseConversation(row: unknown): WhatsAppConversation | null {
           : 0,
     status: r.status === "closed" ? "closed" : "open",
     source: typeof r.source === "string" ? r.source : undefined,
+    metaContactId:
+      typeof r.metaContactId === "string"
+        ? r.metaContactId
+        : typeof r.watiContactId === "string"
+          ? r.watiContactId
+          : undefined,
     watiContactId:
-      typeof r.watiContactId === "string" ? r.watiContactId : undefined,
+      typeof r.watiContactId === "string"
+        ? r.watiContactId
+        : typeof r.metaContactId === "string"
+          ? r.metaContactId
+          : undefined,
   };
 }
 
@@ -106,14 +116,24 @@ function parseMessage(row: unknown): WhatsAppMessage | null {
     body,
     type,
     status,
+    metaMessageId:
+      typeof r.metaMessageId === "string"
+        ? r.metaMessageId
+        : typeof r.watiMessageId === "string"
+          ? r.watiMessageId
+          : undefined,
     watiMessageId:
-      typeof r.watiMessageId === "string" ? r.watiMessageId : undefined,
+      typeof r.watiMessageId === "string"
+        ? r.watiMessageId
+        : typeof r.metaMessageId === "string"
+          ? r.metaMessageId
+          : undefined,
     sentAt: typeof r.sentAt === "string" ? r.sentAt : undefined,
     createdAt,
   };
 }
 
-/** Liste des conversations WhatsApp (N8N + Wati webhook → BDD). */
+/** Liste des conversations WhatsApp (webhook Meta → Nest → Supabase). */
 export async function fetchWhatsAppConversations(): Promise<WhatsAppConversation[]> {
   const base = getApiBaseUrl();
   if (!base) throw new Error("NEXT_PUBLIC_API_URL manquante.");
@@ -213,7 +233,7 @@ export async function fetchWhatsAppMessages(
   return { items, nextCursor };
 }
 
-/** Envoie un message session via Wati (backend → Wati API). */
+/** Envoie un message (Nest → Meta Graph API, puis enregistrement Supabase). */
 export async function sendWhatsAppMessage(
   conversationId: string,
   payload: SendWhatsAppMessagePayload,

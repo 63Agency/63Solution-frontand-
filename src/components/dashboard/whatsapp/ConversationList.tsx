@@ -61,8 +61,8 @@ export function ConversationList({
         ) : null}
         {!loading && filtered.length === 0 ? (
           <p className="p-4 text-center text-sm text-zinc-500">
-            Aucune conversation. Les leads N8N apparaîtront ici après le premier message
-            WhatsApp.
+            Aucune conversation. Les leads apparaîtront ici après le premier message WhatsApp
+            (webhook Meta).
           </p>
         ) : null}
         <ul>
