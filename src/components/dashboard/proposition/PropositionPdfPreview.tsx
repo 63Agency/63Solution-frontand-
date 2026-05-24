@@ -5,6 +5,7 @@
 import {
   applyPropositionTemplateVars,
   propositionDisplayTitle,
+  resolveTarifLineDetail,
   type PropositionFormState,
 } from "./proposition-types";
 import { renderPropositionRichText } from "./renderPropositionRichText";
@@ -27,6 +28,7 @@ const S = {
   h3: { fontSize: "18px", fontWeight: 700, margin: "24px 0 0" },
   p: { margin: "12px 0 0" },
   pFirst: { margin: "16px 0 0" },
+  subTitle: { margin: "20px 0 0", fontSize: "16px", fontWeight: 700 },
   ul: { margin: "12px 0 0", paddingLeft: "24px", listStyleType: "disc" },
   li: { marginTop: "4px" },
   table: {
@@ -101,7 +103,39 @@ export function PropositionPdfPreview({ data }: Props) {
       <div style={S.pageBreak} />
 
       <h3 style={{ ...S.h3, marginTop: 0 }}>2. Campagnes Publicitaires – Facebook &amp; Instagram</h3>
-      <p style={S.p}>{data.section2Texte}</p>
+      <p style={S.p}>{data.section2Intro}</p>
+      <p style={S.p}>
+        {renderPropositionRichText(
+          data.section2Approche,
+          data.nomEtablissement,
+          data.objectifProspects,
+        )}
+      </p>
+      <p style={S.subTitle}>{data.section2Bloc1Titre}</p>
+      <p style={S.p}>{data.section2Bloc1Intro}</p>
+      <ul style={S.ul}>
+        {data.section2Bloc1Points.filter((t) => t.trim()).map((t) => (
+          <li key={t} style={S.li}>
+            {t}
+          </li>
+        ))}
+      </ul>
+      <p style={S.subTitle}>{data.section2Bloc2Titre}</p>
+      <p style={S.p}>{data.section2Bloc2Intro}</p>
+      <ul style={S.ul}>
+        {data.section2Bloc2Points.filter((t) => t.trim()).map((t) => (
+          <li key={t} style={S.li}>
+            {t}
+          </li>
+        ))}
+      </ul>
+      <p style={S.p}>
+        {renderPropositionRichText(
+          data.section2Conclusion,
+          data.nomEtablissement,
+          data.objectifProspects,
+        )}
+      </p>
 
       <hr style={S.hr} />
 
@@ -135,18 +169,31 @@ export function PropositionPdfPreview({ data }: Props) {
         <thead>
           <tr>
             <th style={S.th}>Service</th>
+            <th style={S.th}>Détail</th>
             <th style={S.th}>Prix Initial (MAD)</th>
             <th style={S.th}>Prix Offert (MAD)</th>
           </tr>
         </thead>
         <tbody>
-          {data.tarifsLignes.map((l) => (
+          {data.tarifsLignes.map((l) => {
+            const detail = resolveTarifLineDetail(l, data.videosMin, data.videosMax);
+            return (
             <tr key={l.id}>
               <td style={S.td}>{l.service}</td>
+              <td style={S.td}>
+                {detail.trim()
+                  ? renderPropositionRichText(
+                      detail,
+                      data.nomEtablissement,
+                      data.objectifProspects,
+                    )
+                  : "—"}
+              </td>
               <td style={S.td}>{l.prixInitial}</td>
               <td style={S.td}>{l.prixOffert}</td>
             </tr>
-          ))}
+            );
+          })}
         </tbody>
       </table>
       <p style={{ ...S.p, fontSize: "14px", fontStyle: "italic" }}>{data.tarifsNoteMeta}</p>

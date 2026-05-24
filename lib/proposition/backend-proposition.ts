@@ -7,6 +7,8 @@ import type {
 } from "@/lib/devis/backend-devis";
 import { registerClientInDirectory } from "@/lib/devis/backend-devis";
 import {
+  resolveTarifLineDetail,
+  syncVideoTarifDetailInLignes,
   upgradePropositionContentToLatest,
   type PropositionFormState,
   type PropositionTarifLigne,
@@ -14,19 +16,44 @@ import {
 
 const PROPOSITION_NUMERO_COUNTER_KEY = "propositionNumeroSeq";
 
-async function parsePropositionApiError(res: Response, context: string): Promise<never> {
+async function parsePropositionApiError(
+  res: Response,
+  context: string,
+  payload?: unknown,
+): Promise<never> {
   const raw = await res.text().catch(() => "");
   let message = raw || `Erreur ${res.status}`;
   try {
-    const parsed = JSON.parse(raw) as { message?: string | string[] };
-    if (typeof parsed.message === "string") message = parsed.message;
-    else if (Array.isArray(parsed.message) && parsed.message.length > 0) {
-      message = parsed.message.join(", ");
+    const parsed = JSON.parse(raw) as { message?: unknown };
+    const m = parsed.message;
+    if (typeof m === "string" && m.trim() && !/^Erreur HTTP \d+$/i.test(m.trim())) {
+      message = m;
+    } else if (Array.isArray(m) && m.length > 0) {
+      message = m.map((x) => String(x)).join(", ");
     }
   } catch {
     /* keep raw */
   }
+  if (typeof window !== "undefined" && process.env.NODE_ENV === "development") {
+    // eslint-disable-next-line no-console
+    console.error(`[Proposition API] ${context}`, res.status, message, payload ?? "");
+  }
   throw new Error(message);
+}
+
+/** true si la proposition existe déjà en base (uuid serveur). */
+async function propositionExistsOnServer(propositionId: string): Promise<boolean> {
+  const base = getApiBaseUrl();
+  if (!base) return false;
+  const token = getStoredAccessToken();
+  if (!token) return false;
+
+  const res = await fetch(`${base}/propositions/${encodeURIComponent(propositionId)}`, {
+    method: "GET",
+    headers: { Authorization: `Bearer ${token}` },
+    credentials: "include",
+  });
+  return res.ok;
 }
 
 /** Payload JSON attendu par le backend Nest pour POST/PATCH /propositions */
@@ -63,7 +90,15 @@ export type BackendPropositionPayload = {
       videosMax: number;
       topics: string[];
     };
-    section2CampagnesPublicitaires: { texte: string };
+    section2CampagnesPublicitaires:
+      | { texte: string }
+      | {
+          intro: string;
+          approcheIntro: string;
+          blocs: Array<{ titre: string; intro: string; points: string[] }>;
+          conclusion: string;
+          texte?: string;
+        };
     section3FunnelMarketing: {
       intro: string;
       criteres: string[];
@@ -75,7 +110,12 @@ export type BackendPropositionPayload = {
     };
   };
   tarifs: {
-    lignes: Array<{ service: string; prixInitial: string; prixOffert: string }>;
+    lignes: Array<{
+      service: string;
+      detail?: string;
+      prixInitial: string;
+      prixOffert: string;
+    }>;
     noteMetaAds: string;
   };
   pourquoiChoisir: string[];
@@ -97,6 +137,8 @@ export type BackendPropositionListItem = {
   status?: string;
   dateEmission?: string;
   createdAt?: string;
+  /** true après POST/PATCH réussi — ne pas retirer du cache si GET liste vide. */
+  serverSynced?: boolean;
 };
 
 const LOCAL_STORAGE_KEY = "propositionDrafts";
@@ -138,10 +180,51 @@ export async function registerPropositionClientInDirectory(
   return registerClientInDirectory(clientPayloadFromPropositionForm(data));
 }
 
+export type PropositionApiPayloadFormat = "legacy" | "full";
+
+function resolveApiPayloadFormat(
+  override?: PropositionApiPayloadFormat,
+): PropositionApiPayloadFormat {
+  if (override) return override;
+  return process.env.NEXT_PUBLIC_PROPOSITION_API_FORMAT === "legacy"
+    ? "legacy"
+    : "full";
+}
+
+function buildSection2ForApi(
+  data: PropositionFormState,
+): BackendPropositionPayload["strategie"]["section2CampagnesPublicitaires"] {
+  return {
+    intro: data.section2Intro,
+    approcheIntro: data.section2Approche,
+    blocs: [
+      {
+        titre: data.section2Bloc1Titre,
+        intro: data.section2Bloc1Intro,
+        points: data.section2Bloc1Points.filter((t) => t.trim()),
+      },
+      {
+        titre: data.section2Bloc2Titre,
+        intro: data.section2Bloc2Intro,
+        points: data.section2Bloc2Points.filter((t) => t.trim()),
+      },
+    ],
+    conclusion: data.section2Conclusion,
+  };
+}
+
 export function toBackendPropositionPayload(
   data: PropositionFormState,
-  options?: { includeNumero?: boolean },
+  options?: { includeNumero?: boolean; apiFormat?: PropositionApiPayloadFormat },
 ): BackendPropositionPayload {
+  const apiFormat = resolveApiPayloadFormat(options?.apiFormat);
+  const tarifLignes = syncVideoTarifDetailInLignes(
+    data.tarifsLignes,
+    data.videosMin,
+    data.videosMax,
+    { force: true },
+  );
+
   return {
     titreProposition: data.titreProposition.trim(),
     preparePour: data.clientNom.trim() || data.preparePour.trim(),
@@ -177,7 +260,7 @@ export function toBackendPropositionPayload(
         videosMax: data.videosMax,
         topics: data.section1Topics.filter((t) => t.trim()),
       },
-      section2CampagnesPublicitaires: { texte: data.section2Texte },
+      section2CampagnesPublicitaires: buildSection2ForApi(data),
       section3FunnelMarketing: {
         intro: data.section3Intro,
         criteres: data.funnelCriteres.filter((t) => t.trim()),
@@ -189,10 +272,13 @@ export function toBackendPropositionPayload(
       },
     },
     tarifs: {
-      lignes: data.tarifsLignes.map((l) => ({
+      lignes: tarifLignes.map((l) => ({
         service: l.service,
         prixInitial: l.prixInitial,
         prixOffert: l.prixOffert,
+        ...(apiFormat === "full"
+          ? { detail: resolveTarifLineDetail(l, data.videosMin, data.videosMax) }
+          : {}),
       })),
       noteMetaAds: data.tarifsNoteMeta,
     },
@@ -284,6 +370,7 @@ export function generateNextPropositionNumero(excludeId?: string): string {
 export function savePropositionLocal(
   data: PropositionFormState,
   id?: string,
+  options?: { serverSynced?: boolean },
 ): BackendPropositionListItem {
   const list = listPropositionsLocal();
   const recordId = id || crypto.randomUUID();
@@ -301,6 +388,7 @@ export function savePropositionLocal(
     status: existing?.status ?? "draft",
     dateEmission: dataWithNumero.dateEmission,
     createdAt: existing?.createdAt ?? new Date().toISOString(),
+    serverSynced: options?.serverSynced ?? existing?.serverSynced,
   };
   const payload = { ...dataWithNumero, _savedAt: new Date().toISOString() };
   const next = list.filter((r) => r.id !== recordId);
@@ -320,9 +408,16 @@ export function loadPropositionLocal(id: string): PropositionFormState | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as PropositionFormState & { _savedAt?: string };
     const upgraded = upgradePropositionContentToLatest(parsed);
+    const tarifsChanged =
+      JSON.stringify(upgraded.tarifsLignes) !== JSON.stringify(parsed.tarifsLignes);
+    const section2Changed =
+      upgraded.section2Intro !== (parsed as { section2Intro?: string }).section2Intro ||
+      Boolean((parsed as { section2Texte?: string }).section2Texte);
     if (
       upgraded.introParagraphe1 !== parsed.introParagraphe1 ||
-      upgraded.introParagraphe2 !== parsed.introParagraphe2
+      upgraded.introParagraphe2 !== parsed.introParagraphe2 ||
+      tarifsChanged ||
+      section2Changed
     ) {
       savePropositionLocal(upgraded, id);
     }
@@ -437,8 +532,7 @@ export function listPropositionClientDocRows(): BackendDevisListItem[] {
   return rows;
 }
 
-/** Crée une proposition sur le serveur (POST /propositions). */
-export async function createProposition(
+async function postProposition(
   payload: BackendPropositionPayload,
 ): Promise<BackendPropositionRecord> {
   const base = getApiBaseUrl();
@@ -451,7 +545,7 @@ export async function createProposition(
     body: JSON.stringify(payload),
   });
 
-  if (!res.ok) return parsePropositionApiError(res, "POST /propositions");
+  if (!res.ok) return parsePropositionApiError(res, "POST /propositions", payload);
 
   const body = (await res.json().catch(() => null)) as
     | { id?: string; numero?: string; propositionNumero?: string; status?: string }
@@ -464,11 +558,29 @@ export async function createProposition(
   };
 }
 
+/** Crée une proposition sur le serveur (POST /propositions). */
+export async function createProposition(
+  data: PropositionFormState,
+  options?: { includeNumero?: boolean; apiFormat?: PropositionApiPayloadFormat },
+): Promise<BackendPropositionRecord> {
+  const payload = toBackendPropositionPayload(data, options);
+  return postProposition(payload);
+}
+
+/** @deprecated Préférer createProposition(data) — conservé pour appels internes. */
+export async function createPropositionWithPayload(
+  payload: BackendPropositionPayload,
+): Promise<BackendPropositionRecord> {
+  return postProposition(payload);
+}
+
 /** Met à jour une proposition (PATCH /propositions/:id). */
 export async function updateProposition(
   propositionId: string,
-  payload: BackendPropositionPayload,
+  data: PropositionFormState,
+  options?: { includeNumero?: boolean; apiFormat?: PropositionApiPayloadFormat },
 ): Promise<BackendPropositionRecord> {
+  const payload = toBackendPropositionPayload(data, options);
   const base = getApiBaseUrl();
   if (!base) throw new Error("NEXT_PUBLIC_API_URL manquante.");
 
@@ -479,7 +591,9 @@ export async function updateProposition(
     body: JSON.stringify(payload),
   });
 
-  if (!res.ok) return parsePropositionApiError(res, `PATCH /propositions/${propositionId}`);
+  if (!res.ok) {
+    return parsePropositionApiError(res, `PATCH /propositions/${propositionId}`, payload);
+  }
 
   const body = (await res.json().catch(() => null)) as
     | { id?: string; numero?: string; propositionNumero?: string; status?: string }
@@ -491,6 +605,275 @@ export async function updateProposition(
   };
 }
 
+function parsePropositionListItem(row: unknown): BackendPropositionListItem | null {
+  if (!row || typeof row !== "object") return null;
+  const r = row as Record<string, unknown>;
+  const id = String(r.id ?? "");
+  if (!id) return null;
+  return {
+    id,
+    numero:
+      typeof r.numero === "string"
+        ? r.numero
+        : typeof r.propositionNumero === "string"
+          ? r.propositionNumero
+          : undefined,
+    titreProposition:
+      typeof r.titreProposition === "string" ? r.titreProposition : undefined,
+    nomEtablissement:
+      typeof r.nomEtablissement === "string" ? r.nomEtablissement : undefined,
+    preparePour: typeof r.preparePour === "string" ? r.preparePour : undefined,
+    status: typeof r.status === "string" ? r.status : undefined,
+    dateEmission:
+      typeof r.dateEmission === "string" ? r.dateEmission : undefined,
+    createdAt: typeof r.createdAt === "string" ? r.createdAt : undefined,
+  };
+}
+
+export type PropositionFetchSource =
+  | "api"
+  | "local"
+  | "auth"
+  | "unreachable"
+  | "config";
+
+export type FetchPropositionsResult = {
+  items: BackendPropositionListItem[];
+  source: PropositionFetchSource;
+};
+
+/** Liste des propositions sur le serveur (GET /propositions). */
+export async function fetchPropositionsFromApi(): Promise<FetchPropositionsResult> {
+  const base = getApiBaseUrl();
+  if (!base) return { items: [], source: "config" };
+
+  const token = getStoredAccessToken();
+  if (!token) return { items: [], source: "auth" };
+
+  let res: Response;
+  try {
+    res = await fetch(`${base}/propositions`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+      credentials: "include",
+    });
+  } catch {
+    return { items: [], source: "unreachable" };
+  }
+
+  if (res.status === 401 || res.status === 403) {
+    return { items: [], source: "auth" };
+  }
+  if (res.status === 404) {
+    return { items: [], source: "local" };
+  }
+  if (!res.ok) {
+    return { items: [], source: "unreachable" };
+  }
+
+  const raw = (await res.json().catch(() => null)) as unknown;
+  const list = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object" && Array.isArray((raw as { items?: unknown[] }).items)
+      ? ((raw as { items: unknown[] }).items as unknown[])
+      : [];
+
+  const items = list
+    .map((row) => parsePropositionListItem(row))
+    .filter((v): v is BackendPropositionListItem => v !== null);
+
+  return { items, source: "api" };
+}
+
+/**
+ * Aligne le cache local sur GET /propositions : retire les brouillons jamais enregistrés en base.
+ */
+export function reconcileLocalPropositionsWithServer(
+  serverItems: BackendPropositionListItem[],
+): BackendPropositionListItem[] {
+  const serverIds = new Set(serverItems.map((i) => i.id));
+  const localList = listPropositionsLocal();
+
+  if (serverItems.length > 0) {
+    for (const item of localList) {
+      if (!serverIds.has(item.id) && !item.serverSynced) {
+        deletePropositionLocal(item.id);
+      }
+    }
+  }
+
+  const mergedFromServer = serverItems.map((server) => {
+    const prev = localList.find((l) => l.id === server.id);
+    return { ...prev, ...server, serverSynced: true };
+  });
+
+  const serverMergedIds = new Set(mergedFromServer.map((i) => i.id));
+  const localOnlySynced = localList.filter(
+    (item) => item.serverSynced && !serverMergedIds.has(item.id),
+  );
+
+  const merged = [...mergedFromServer, ...localOnlySynced];
+
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(merged));
+  }
+
+  return merged;
+}
+
+export type LoadPropositionsForDashboardResult = {
+  items: BackendPropositionListItem[];
+  source: PropositionFetchSource;
+};
+
+export function propositionListSourceLabel(source: PropositionFetchSource): string {
+  switch (source) {
+    case "api":
+      return "Synchronisé avec GET /propositions";
+    case "auth":
+      return "Brouillons locaux — reconnecte-toi pour synchroniser avec l’API";
+    case "unreachable":
+      return "Brouillons locaux — API Nest injoignable (http://localhost:3002)";
+    case "config":
+      return "Brouillons locaux — NEXT_PUBLIC_API_URL manquante dans .env.local";
+    default:
+      return "Brouillons locaux (GET /propositions non disponible)";
+  }
+}
+
+/** Charge la liste : API d’abord, sinon brouillons localStorage. */
+export async function loadPropositionsForDashboard(): Promise<LoadPropositionsForDashboardResult> {
+  const { items, source } = await fetchPropositionsFromApi();
+  if (source === "api") {
+    return {
+      items: reconcileLocalPropositionsWithServer(items),
+      source: "api",
+    };
+  }
+  return { items: listPropositionsLocal(), source };
+}
+
+const PROP_NUMERO_RE = /^PROP-\d{4}-\d+$/i;
+
+function normalizePropositionNumeroRef(value?: string): string {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) return "";
+  const asProp = trimmed.replace(/^PR-/i, "PROP-");
+  return PROP_NUMERO_RE.test(asProp) ? asProp : "";
+}
+
+/**
+ * Référence à envoyer à DELETE /propositions/:ref (uuid serveur ou numero PROP-YYYY-NNN).
+ * Préfère le numéro officiel pour éviter un uuid localStorage obsolète après POST.
+ */
+export function resolvePropositionDeleteRef(
+  id: string,
+  numero?: string,
+): string {
+  const trimmedId = id.trim();
+  const fromList = listPropositionsLocal().find((r) => r.id === trimmedId);
+  const fromForm = loadPropositionLocal(trimmedId);
+  const officialNumero = normalizePropositionNumeroRef(
+    numero ?? fromList?.numero ?? fromForm?.propositionNumero,
+  );
+  if (officialNumero) return officialNumero;
+  return trimmedId;
+}
+
+function isPropositionAlreadyGoneMessage(message: string): boolean {
+  const m = message.toLowerCase();
+  return (
+    m.includes("introuvable") ||
+    m.includes("déjà supprimée") ||
+    m.includes("deja supprimee") ||
+    m.includes("jamais enregistrée") ||
+    m.includes("jamais enregistree")
+  );
+}
+
+/**
+ * Supprime la proposition en base (Nest → Supabase).
+ * ref = uuid renvoyé par POST /propositions, ou numero PROP-2026-012.
+ * 200 = succès (y compris « déjà supprimée / introuvable »).
+ */
+export async function deleteProposition(ref: string): Promise<void> {
+  const base = getApiBaseUrl();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL manquante.");
+
+  const encodedRef = encodeURIComponent(ref.trim());
+  const headers = buildAuthHeaders();
+  const deleteUrl = `${base}/propositions/${encodedRef}`;
+  const postDeleteUrl = `${base}/propositions/${encodedRef}/delete`;
+
+  let res = await fetch(deleteUrl, {
+    method: "DELETE",
+    headers,
+    credentials: "include",
+  });
+
+  if (res.status === 404 || res.status === 405) {
+    res = await fetch(postDeleteUrl, {
+      method: "POST",
+      headers,
+      credentials: "include",
+    });
+  }
+
+  const body = (await res.json().catch(() => ({}))) as { message?: unknown };
+
+  if (res.ok) return;
+
+  const message =
+    typeof body.message === "string"
+      ? body.message
+      : `Suppression impossible (${res.status})`;
+
+  if (isPropositionAlreadyGoneMessage(message)) return;
+
+  throw new Error(message);
+}
+
+/** Retire du cache local toutes les entrées liées à cet id ou numéro PROP. */
+export function deletePropositionLocalByRef(id: string, numero?: string): void {
+  const trimmedId = id.trim();
+  const officialNumero = normalizePropositionNumeroRef(
+    numero ??
+      listPropositionsLocal().find((r) => r.id === trimmedId)?.numero ??
+      loadPropositionLocal(trimmedId)?.propositionNumero,
+  );
+
+  const idsToRemove = new Set<string>();
+  if (trimmedId) idsToRemove.add(trimmedId);
+
+  for (const item of listPropositionsLocal()) {
+    if (item.id === trimmedId) idsToRemove.add(item.id);
+    if (officialNumero && normalizePropositionNumeroRef(item.numero) === officialNumero) {
+      idsToRemove.add(item.id);
+    }
+    const full = loadPropositionLocal(item.id);
+    if (officialNumero && normalizePropositionNumeroRef(full?.propositionNumero) === officialNumero) {
+      idsToRemove.add(item.id);
+    }
+  }
+
+  for (const removeId of idsToRemove) {
+    deletePropositionLocal(removeId);
+  }
+}
+
+/**
+ * Supprime en base puis nettoie localStorage — à brancher sur le bouton 🗑️.
+ * Ne retire la ligne UI qu’après succès de cette fonction.
+ */
+export async function deletePropositionAndLocal(
+  id: string,
+  options?: { numero?: string },
+): Promise<void> {
+  const ref = resolvePropositionDeleteRef(id, options?.numero);
+  await deleteProposition(ref);
+  deletePropositionLocalByRef(id, options?.numero);
+}
+
 function migratePropositionLocalId(
   oldId: string,
   newId: string,
@@ -500,7 +883,9 @@ function migratePropositionLocalId(
   if (typeof window === "undefined" || oldId === newId) return;
   deletePropositionLocal(oldId);
   const numero = meta.numero ?? data.propositionNumero;
-  savePropositionLocal({ ...data, propositionNumero: numero }, newId);
+  savePropositionLocal({ ...data, propositionNumero: numero }, newId, {
+    serverSynced: true,
+  });
 }
 
 /**
@@ -511,42 +896,44 @@ export async function syncPropositionToServer(
   data: PropositionFormState,
   localId?: string,
 ): Promise<string> {
-  const payload = toBackendPropositionPayload(data, {
-    includeNumero: !!data.propositionNumero.trim(),
-  });
+  const existsOnServer =
+    localId !== undefined && (await propositionExistsOnServer(localId));
 
-  if (localId) {
-    const base = getApiBaseUrl();
-    if (base) {
-      const res = await fetch(`${base}/propositions/${encodeURIComponent(localId)}`, {
-        method: "PATCH",
-        headers: buildAuthHeaders(),
-        credentials: "include",
-        body: JSON.stringify(payload),
-      });
-      if (res.ok) {
-        const body = (await res.json().catch(() => null)) as { id?: string } | null;
-        return body?.id ?? localId;
-      }
-      if (res.status !== 404) {
-        return parsePropositionApiError(res, `PATCH /propositions/${localId}`);
-      }
-    }
-  }
-
-  const created = await createProposition(payload);
-  if (localId && localId !== created.id) {
-    migratePropositionLocalId(localId, created.id, data, {
-      id: created.id,
-      numero: created.numero,
-      titreProposition: data.titreProposition,
-      nomEtablissement: data.nomEtablissement,
-      preparePour: data.preparePour,
-      status: created.status ?? "draft",
-      dateEmission: data.dateEmission,
-      createdAt: new Date().toISOString(),
+  if (existsOnServer && localId) {
+    const updated = await updateProposition(localId, data, {
+      includeNumero: !!data.propositionNumero.trim(),
     });
+    const dataWithNumero = {
+      ...data,
+      propositionNumero: updated.numero ?? data.propositionNumero,
+    };
+    savePropositionLocal(dataWithNumero, updated.id, { serverSynced: true });
+    return updated.id;
   }
+
+  const created = await createProposition(data, { includeNumero: false });
+  const dataWithNumero = {
+    ...data,
+    propositionNumero: created.numero ?? data.propositionNumero,
+  };
+  const meta: BackendPropositionListItem = {
+    id: created.id,
+    numero: created.numero,
+    titreProposition: data.titreProposition,
+    nomEtablissement: data.nomEtablissement,
+    preparePour: data.preparePour,
+    status: created.status ?? "draft",
+    dateEmission: data.dateEmission,
+    createdAt: new Date().toISOString(),
+    serverSynced: true,
+  };
+
+  if (localId && localId !== created.id) {
+    migratePropositionLocalId(localId, created.id, dataWithNumero, meta);
+  } else {
+    savePropositionLocal(dataWithNumero, created.id, { serverSynced: true });
+  }
+
   return created.id;
 }
 

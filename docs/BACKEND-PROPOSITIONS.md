@@ -55,7 +55,15 @@ Crée une proposition. Corps JSON = `BackendPropositionPayload` :
       "videosMax": 4,
       "topics": ["string"]
     },
-    "section2CampagnesPublicitaires": { "texte": "string" },
+    "section2CampagnesPublicitaires": {
+      "intro": "string",
+      "approcheIntro": "string (**gras** supporté)",
+      "blocs": [
+        { "titre": "1. Création & Paramétrage des campagnes", "intro": "string", "points": ["string"] },
+        { "titre": "2. Optimisation continue des performances", "intro": "string", "points": ["string"] }
+      ],
+      "conclusion": "string (**gras** supporté)"
+    },
     "section3FunnelMarketing": {
       "intro": "string",
       "criteres": ["string"],
@@ -68,7 +76,12 @@ Crée une proposition. Corps JSON = `BackendPropositionPayload` :
   },
   "tarifs": {
     "lignes": [
-      { "service": "string", "prixInitial": "string", "prixOffert": "string" }
+      {
+        "service": "string",
+        "detail": "string (colonne Détail ; **gras** → <strong> dans le PDF)",
+        "prixInitial": "string",
+        "prixOffert": "string"
+      }
     ],
     "noteMetaAds": "string"
   },
@@ -126,7 +139,14 @@ Mise à jour partielle ou complète (même schéma que POST).
 
 ### `DELETE /propositions/:id`
 
-Suppression (204 ou 200).
+Suppression en base (réponse **200** ou **204**). Le front appelle cette route **avant** de retirer la ligne du tableau / localStorage.
+
+`ref` = uuid renvoyé par `POST /propositions`, ou numéro `PROP-YYYY-NNN`.
+
+**Alternatives** si `DELETE` est bloqué :
+
+- `POST /propositions/:id/delete`
+- `POST /propositions/by-numero/:numero/delete` (numéro `PROP-…`)
 
 ---
 
@@ -164,6 +184,17 @@ const blob = await res.blob();
 
 Voir `PropositionPdfPreview.tsx` pour la mise en page exacte.
 
+#### Tableau « Tarifs Proposés » — 4 colonnes
+
+| Colonne PDF | Champ JSON | Notes |
+|-------------|------------|--------|
+| Service | `tarifs.lignes[].service` | Texte brut |
+| **Détail** | `tarifs.lignes[].detail` | Texte ; `**mot**` → gras (comme introduction) |
+| Prix Initial (MAD) | `tarifs.lignes[].prixInitial` | Ex. `5 550 / mois` |
+| Prix Offert (MAD) | `tarifs.lignes[].prixOffert` | Ex. `Offert`, `4 000 / mois` |
+
+Si `detail` est absent (anciennes données), afficher cellule vide ou `—`.
+
 #### Section « Notre stratégie… » — à respecter dans le PDF
 
 **Titre de section (H2, centré)**  
@@ -193,7 +224,7 @@ Il vise à rassurer les parents, valoriser l'image de l'établissement et mettre
 - Infrastructures et environnement  
 - Approche pédagogique et accompagnement des parents  
 
-**2. Campagnes Publicitaires** — `strategie.section2CampagnesPublicitaires.texte` (paragraphe)
+**2. Campagnes Publicitaires** — `strategie.section2CampagnesPublicitaires` : intro + approcheIntro (gras `**…**`) + 2 blocs (titre, intro, liste `points[]`) + conclusion. Voir `PropositionPdfPreview.tsx`.
 
 **3. Funnel Marketing** — `intro` + liste `criteres[]` + `conclusion`
 

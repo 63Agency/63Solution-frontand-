@@ -6,7 +6,7 @@ import { useEffect, useState } from "react";
 import { ArrowLeft, Download, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
-  deletePropositionLocal,
+  deletePropositionAndLocal,
   downloadPropositionPdf,
   loadPropositionLocal,
   registerPropositionClientInDirectory,
@@ -18,9 +18,12 @@ import { StringListEditor } from "./StringListEditor";
 import {
   applyPropositionPreparer,
   defaultPropositionForm,
+  isVideoContentTarifService,
   newPropositionId,
   PROPOSITION_PREPARERS,
   resolvePropositionPreparerId,
+  resolveTarifLineDetail,
+  syncVideoTarifDetailInLignes,
   type PropositionFormState,
   type PropositionPreparerId,
   type PropositionTarifLigne,
@@ -70,6 +73,23 @@ export function NouvellePropositionPage() {
     setData((d) => ({ ...d, [key]: value }));
   };
 
+  const updateVideoCounts = (patch: { videosMin?: number; videosMax?: number }) => {
+    setData((d) => {
+      const videosMin = patch.videosMin ?? d.videosMin;
+      const videosMax = patch.videosMax ?? d.videosMax;
+      return {
+        ...d,
+        videosMin,
+        videosMax,
+        tarifsLignes: syncVideoTarifDetailInLignes(
+          d.tarifsLignes,
+          videosMin,
+          videosMax,
+        ),
+      };
+    });
+  };
+
   const updateTarif = (id: string, patch: Partial<PropositionTarifLigne>) => {
     setData((d) => ({
       ...d,
@@ -82,7 +102,7 @@ export function NouvellePropositionPage() {
       ...d,
       tarifsLignes: [
         ...d.tarifsLignes,
-        { id: newPropositionId(), service: "", prixInitial: "", prixOffert: "" },
+        { id: newPropositionId(), service: "", detail: "", prixInitial: "", prixOffert: "" },
       ],
     }));
   };
@@ -145,7 +165,10 @@ export function NouvellePropositionPage() {
       try {
         serverId = await syncPropositionToServer(withNumero, saved.id);
         setPropositionId(serverId);
-        if (saved.numero) {
+        const synced = loadPropositionLocal(serverId);
+        if (synced?.propositionNumero) {
+          setData((d) => ({ ...d, propositionNumero: synced.propositionNumero }));
+        } else if (saved.numero) {
           setData((d) => ({ ...d, propositionNumero: saved.numero! }));
         }
         toast.success(
@@ -538,7 +561,9 @@ export function NouvellePropositionPage() {
                         className={fieldClass}
                         value={data.videosMin}
                         onChange={(e) =>
-                          update("videosMin", Math.max(1, Number.parseInt(e.target.value, 10) || 1))
+                          updateVideoCounts({
+                            videosMin: Math.max(1, Number.parseInt(e.target.value, 10) || 1),
+                          })
                         }
                       />
                     </div>
@@ -550,10 +575,12 @@ export function NouvellePropositionPage() {
                         className={fieldClass}
                         value={data.videosMax}
                         onChange={(e) =>
-                          update(
-                            "videosMax",
-                            Math.max(data.videosMin, Number.parseInt(e.target.value, 10) || 1),
-                          )
+                          updateVideoCounts({
+                            videosMax: Math.max(
+                              data.videosMin,
+                              Number.parseInt(e.target.value, 10) || 1,
+                            ),
+                          })
                         }
                       />
                     </div>
@@ -570,12 +597,79 @@ export function NouvellePropositionPage() {
                 <h3 className="text-sm font-semibold text-white">
                   2. Campagnes publicitaires — Facebook &amp; Instagram
                 </h3>
-                <textarea
-                  className={`${fieldClass} mt-3 min-h-[88px]`}
-                  value={data.section2Texte}
-                  onChange={(e) => update("section2Texte", e.target.value)}
-                  rows={4}
-                />
+                <div className="mt-3 space-y-3">
+                  <div>
+                    <label className={labelClass}>Introduction</label>
+                    <textarea
+                      className={`${fieldClass} min-h-[72px]`}
+                      value={data.section2Intro}
+                      onChange={(e) => update("section2Intro", e.target.value)}
+                      rows={3}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>
+                      Transition (utilisez **texte** pour le gras)
+                    </label>
+                    <textarea
+                      className={`${fieldClass} min-h-[56px]`}
+                      value={data.section2Approche}
+                      onChange={(e) => update("section2Approche", e.target.value)}
+                      rows={2}
+                    />
+                  </div>
+                  <div className="rounded border border-zinc-700/80 p-3">
+                    <label className={labelClass}>Titre volet 1</label>
+                    <input
+                      className={fieldClass}
+                      value={data.section2Bloc1Titre}
+                      onChange={(e) => update("section2Bloc1Titre", e.target.value)}
+                    />
+                    <label className={`${labelClass} mt-2`}>Texte volet 1</label>
+                    <textarea
+                      className={`${fieldClass} min-h-[56px]`}
+                      value={data.section2Bloc1Intro}
+                      onChange={(e) => update("section2Bloc1Intro", e.target.value)}
+                      rows={2}
+                    />
+                    <StringListEditor
+                      label="Points volet 1"
+                      items={data.section2Bloc1Points}
+                      onChange={(items) => update("section2Bloc1Points", items)}
+                    />
+                  </div>
+                  <div className="rounded border border-zinc-700/80 p-3">
+                    <label className={labelClass}>Titre volet 2</label>
+                    <input
+                      className={fieldClass}
+                      value={data.section2Bloc2Titre}
+                      onChange={(e) => update("section2Bloc2Titre", e.target.value)}
+                    />
+                    <label className={`${labelClass} mt-2`}>Texte volet 2</label>
+                    <textarea
+                      className={`${fieldClass} min-h-[56px]`}
+                      value={data.section2Bloc2Intro}
+                      onChange={(e) => update("section2Bloc2Intro", e.target.value)}
+                      rows={2}
+                    />
+                    <StringListEditor
+                      label="Points volet 2"
+                      items={data.section2Bloc2Points}
+                      onChange={(items) => update("section2Bloc2Points", items)}
+                    />
+                  </div>
+                  <div>
+                    <label className={labelClass}>
+                      Conclusion (utilisez **texte** pour le gras)
+                    </label>
+                    <textarea
+                      className={`${fieldClass} min-h-[56px]`}
+                      value={data.section2Conclusion}
+                      onChange={(e) => update("section2Conclusion", e.target.value)}
+                      rows={2}
+                    />
+                  </div>
+                </div>
               </div>
 
               <div>
@@ -658,14 +752,40 @@ export function NouvellePropositionPage() {
                       <Trash2 className="size-3.5" aria-hidden />
                     </button>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-3">
-                    <div className="sm:col-span-3">
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    <div className="sm:col-span-2">
                       <label className={labelClass}>Service</label>
                       <input
                         className={fieldClass}
                         value={ligne.service}
                         onChange={(e) => updateTarif(ligne.id, { service: e.target.value })}
                       />
+                    </div>
+                    <div className="sm:col-span-2">
+                      <label className={labelClass}>Détail</label>
+                      {isVideoContentTarifService(ligne.service) ? (
+                        <>
+                          <input
+                            className={`${fieldClass} bg-zinc-800/80`}
+                            value={resolveTarifLineDetail(
+                              ligne,
+                              data.videosMin,
+                              data.videosMax,
+                            )}
+                            readOnly
+                          />
+                          <p className="mt-1 text-[10px] text-zinc-500">
+                            Synchronisé avec « Vidéos min / max » (section Création de contenu).
+                          </p>
+                        </>
+                      ) : (
+                        <input
+                          className={fieldClass}
+                          value={ligne.detail}
+                          onChange={(e) => updateTarif(ligne.id, { detail: e.target.value })}
+                          placeholder="Ex. Gestion et optimisation des campagnes — **gras** avec **texte**"
+                        />
+                      )}
                     </div>
                     <div>
                       <label className={labelClass}>Prix initial (MAD)</label>
@@ -789,14 +909,22 @@ export function NouvellePropositionPage() {
             {propositionId ? (
               <button
                 type="button"
-                onClick={() => {
-                  deletePropositionLocal(propositionId);
-                  toast.success("Brouillon supprimé.");
-                  router.push("/dashboard/factures?tab=propositions");
+                onClick={async () => {
+                  try {
+                    await deletePropositionAndLocal(propositionId, {
+                      numero: data.propositionNumero,
+                    });
+                    toast.success("Proposition supprimée.");
+                    router.push("/dashboard/factures?tab=propositions");
+                  } catch (e) {
+                    toast.error(
+                      e instanceof Error ? e.message : "Suppression impossible.",
+                    );
+                  }
                 }}
                 className="inline-flex items-center gap-2 rounded-md border border-red-700/60 px-4 py-2 font-mono text-[11px] uppercase text-red-300 hover:bg-red-900/30"
               >
-                Supprimer brouillon
+                Supprimer
               </button>
             ) : null}
           </div>

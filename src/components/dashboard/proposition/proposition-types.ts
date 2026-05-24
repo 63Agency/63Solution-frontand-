@@ -81,6 +81,8 @@ export function resolvePropositionPreparerId(
 export type PropositionTarifLigne = {
   id: string;
   service: string;
+  /** Description courte (colonne « Détail » du PDF ; **gras** supporté). */
+  detail: string;
   prixInitial: string;
   prixOffert: string;
 };
@@ -117,7 +119,15 @@ export type PropositionFormState = {
   videosMax: number;
   section1Topics: string[];
 
-  section2Texte: string;
+  section2Intro: string;
+  section2Approche: string;
+  section2Bloc1Titre: string;
+  section2Bloc1Intro: string;
+  section2Bloc1Points: string[];
+  section2Bloc2Titre: string;
+  section2Bloc2Intro: string;
+  section2Bloc2Points: string[];
+  section2Conclusion: string;
 
   section3Intro: string;
   funnelCriteres: string[];
@@ -156,6 +166,103 @@ export const DEFAULT_FUNNEL_CRITERES = [
   "L'intention réelle d'inscription",
 ];
 
+export const DEFAULT_SECTION2_INTRO =
+  "Mise en place de campagnes Meta Ads ciblant les parents correspondant à la tranche d\u2019âge des élèves, selon la zone géographique de l\u2019établissement.";
+
+export const DEFAULT_SECTION2_APPROCHE =
+  "Notre approche repose sur **deux volets essentiels pour garantir la performance du système** :";
+
+export const DEFAULT_SECTION2_BLOC1_TITRE = "1. Création & Paramétrage des campagnes";
+
+export const DEFAULT_SECTION2_BLOC1_INTRO =
+  "Mise en place stratégique des campagnes dès le démarrage, incluant :";
+
+export const DEFAULT_SECTION2_BLOC1_POINTS = [
+  "Paramétrage précis des audiences adaptées au secteur éducatif",
+  "Création des messages et visuels alignés avec le positionnement de l\u2019établissement",
+  "Structuration des campagnes pour capter des parents réellement intéressés",
+];
+
+export const DEFAULT_SECTION2_BLOC2_TITRE = "2. Optimisation continue des performances";
+
+export const DEFAULT_SECTION2_BLOC2_INTRO =
+  "Suivi et optimisation des campagnes de manière régulière afin de :";
+
+export const DEFAULT_SECTION2_BLOC2_POINTS = [
+  "Améliorer la qualité des prospects générés",
+  "Ajuster les audiences et les messages en fonction des résultats",
+  "Garantir un flux constant de parents qualifiés, semaine après semaine",
+];
+
+export const DEFAULT_SECTION2_CONCLUSION =
+  "Les campagnes seront ainsi optimisées en continu afin d\u2019assurer un **flux régulier et maîtrisé de prospects qualifiés.**";
+
+/** Ancien paragraphe unique (section 2) — remplacé par la structure à 2 volets. */
+export const LEGACY_SECTION2_TEXTE =
+  "Mise en place de campagnes Meta Ads ciblant les parents correspondant à la tranche d'âge des élèves et à la zone géographique de l'établissement. Optimisation continue pour garantir un équilibre entre volume et qualité des prospects.";
+
+export function defaultSection2Fields(): Pick<
+  PropositionFormState,
+  | "section2Intro"
+  | "section2Approche"
+  | "section2Bloc1Titre"
+  | "section2Bloc1Intro"
+  | "section2Bloc1Points"
+  | "section2Bloc2Titre"
+  | "section2Bloc2Intro"
+  | "section2Bloc2Points"
+  | "section2Conclusion"
+> {
+  return {
+    section2Intro: DEFAULT_SECTION2_INTRO,
+    section2Approche: DEFAULT_SECTION2_APPROCHE,
+    section2Bloc1Titre: DEFAULT_SECTION2_BLOC1_TITRE,
+    section2Bloc1Intro: DEFAULT_SECTION2_BLOC1_INTRO,
+    section2Bloc1Points: [...DEFAULT_SECTION2_BLOC1_POINTS],
+    section2Bloc2Titre: DEFAULT_SECTION2_BLOC2_TITRE,
+    section2Bloc2Intro: DEFAULT_SECTION2_BLOC2_INTRO,
+    section2Bloc2Points: [...DEFAULT_SECTION2_BLOC2_POINTS],
+    section2Conclusion: DEFAULT_SECTION2_CONCLUSION,
+  };
+}
+
+export function isLegacySection2Text(text: string): boolean {
+  const t = text.trim().toLowerCase();
+  if (!t) return false;
+  return (
+    t === LEGACY_SECTION2_TEXTE.trim().toLowerCase() ||
+    (t.includes("meta ads") &&
+      t.includes("optimisation continue") &&
+      !t.includes("deux volets"))
+  );
+}
+
+type PropositionFormLegacy = PropositionFormState & { section2Texte?: string };
+
+export function upgradePropositionSection2ToLatest(
+  data: PropositionFormLegacy,
+): PropositionFormState {
+  if (typeof data.section2Intro === "string" && data.section2Intro.trim()) {
+    const { section2Texte: _removed, ...rest } = data;
+    return rest as PropositionFormState;
+  }
+
+  const defaults = defaultSection2Fields();
+  const legacy = data.section2Texte?.trim() ?? "";
+
+  if (legacy && !isLegacySection2Text(legacy)) {
+    return {
+      ...data,
+      ...defaults,
+      section2Intro: legacy,
+      section2Texte: undefined,
+    } as PropositionFormState;
+  }
+
+  const { section2Texte: _removed, ...rest } = data;
+  return { ...rest, ...defaults };
+}
+
 export const DEFAULT_SECTION4_POINTS = [
   "Connexion du funnel aux campagnes publicitaires",
   "Centralisation et structuration des leads",
@@ -169,26 +276,80 @@ export const DEFAULT_POURQUOI_CHOISIR = [
   "Méthodologie claire, testée et optimisée",
 ];
 
+const VIDEO_TARIF_DETAIL_SUFFIX = "(Espagne, orientation, accompagnement)";
+
+/** Ligne tarif « Création de contenu vidéo » — alignée sur section 1 (videosMin / videosMax). */
+export function isVideoContentTarifService(service: string): boolean {
+  return /création de contenu vidéo/i.test(service.trim());
+}
+
+export function formatVideoTarifDetail(videosMin: number, videosMax: number): string {
+  const min = Math.max(1, videosMin);
+  const max = Math.max(min, videosMax);
+  const count =
+    min === max ? `**${min} vidéos**` : `**${min} à ${max} vidéos**`;
+  return `${count} ${VIDEO_TARIF_DETAIL_SUFFIX}`;
+}
+
+/** Détail généré automatiquement (modifiable manuellement si le suffixe change). */
+export function isAutoVideoTarifDetail(detail: string): boolean {
+  const t = detail.trim();
+  if (!t) return true;
+  if (!t.includes(VIDEO_TARIF_DETAIL_SUFFIX)) return false;
+  return /\*\*\d+(\s+à\s+\d+)?\s+vidéos\*\*/i.test(t);
+}
+
+export function syncVideoTarifDetailInLignes(
+  lignes: PropositionTarifLigne[],
+  videosMin: number,
+  videosMax: number,
+  options?: { force?: boolean },
+): PropositionTarifLigne[] {
+  const nextDetail = formatVideoTarifDetail(videosMin, videosMax);
+  return lignes.map((l) => {
+    if (!isVideoContentTarifService(l.service)) return l;
+    if (!options?.force && !isAutoVideoTarifDetail(l.detail)) return l;
+    if (l.detail === nextDetail) return l;
+    return { ...l, detail: nextDetail };
+  });
+}
+
+/** Détail affiché (PDF / aperçu) — vidéos toujours liées à la section 1. */
+export function resolveTarifLineDetail(
+  ligne: PropositionTarifLigne,
+  videosMin: number,
+  videosMax: number,
+): string {
+  if (isVideoContentTarifService(ligne.service)) {
+    return formatVideoTarifDetail(videosMin, videosMax);
+  }
+  return ligne.detail;
+}
+
 export const DEFAULT_TARIFS_LIGNES: Omit<PropositionTarifLigne, "id">[] = [
   {
     service: "Gestion Publicitaire (Facebook & Instagram)",
+    detail: "Gestion et optimisation des campagnes",
     prixInitial: "5 550 / mois",
-    prixOffert: "4 000 / mois (1er mois) après 4 500 / mois",
+    prixOffert: "4 000 / mois",
   },
   {
     service: "Funnel Marketing (Tunnel de vente)",
-    prixInitial: "4 500",
-    prixOffert: "3 500",
+    detail: "Création & paramétrage du système",
+    prixInitial: "4 000 MAD",
+    prixOffert: "3 000 MAD",
   },
   {
     service: "Automatisation CRM (intégration + automatiques)",
+    detail: "Structuration des leads, suivi et automatisation du système",
     prixInitial: "2 750",
     prixOffert: "Offert",
   },
   {
     service: "Création de contenu vidéo",
+    detail: formatVideoTarifDetail(20, 25),
     prixInitial: "1 450 / 1 vidéo",
-    prixOffert: "1 000 / 1 vidéo",
+    prixOffert: "1 200 / 1 vidéo",
   },
 ];
 
@@ -253,9 +414,39 @@ export function upgradePropositionSection1ToLatest(
   return { ...data, section1Description: DEFAULT_SECTION1_DESCRIPTION };
 }
 
-/** Introduction + section 1 stratégie (textes modèles à jour). */
-export function upgradePropositionContentToLatest(data: PropositionFormState): PropositionFormState {
-  return upgradePropositionSection1ToLatest(upgradePropositionIntroToLatest(data));
+/** Ajoute `detail` aux lignes tarif anciennes (localStorage / API sans le champ). */
+export function normalizeTarifsLignes(
+  lignes: PropositionTarifLigne[],
+): PropositionTarifLigne[] {
+  const defaultByService = new Map(
+    DEFAULT_TARIFS_LIGNES.map((d) => [d.service.trim().toLowerCase(), d.detail]),
+  );
+  return lignes.map((l) => {
+    const detail =
+      typeof l.detail === "string"
+        ? l.detail
+        : defaultByService.get(l.service.trim().toLowerCase()) ?? "";
+    return { ...l, detail };
+  });
+}
+
+/** Introduction + sections stratégie + colonne Détail tarifs. */
+export function upgradePropositionContentToLatest(
+  data: PropositionFormLegacy,
+): PropositionFormState {
+  let upgraded = upgradePropositionSection2ToLatest(
+    upgradePropositionSection1ToLatest(upgradePropositionIntroToLatest(data)),
+  );
+  const tarifsLignes = syncVideoTarifDetailInLignes(
+    normalizeTarifsLignes(upgraded.tarifsLignes),
+    upgraded.videosMin,
+    upgraded.videosMax,
+    { force: true },
+  );
+  if (tarifsLignes !== upgraded.tarifsLignes) {
+    upgraded = { ...upgraded, tarifsLignes };
+  }
+  return upgraded;
 }
 
 export function defaultPropositionForm(): PropositionFormState {
@@ -290,8 +481,7 @@ export function defaultPropositionForm(): PropositionFormState {
     videosMax: 25,
     section1Topics: [...DEFAULT_SECTION1_TOPICS],
 
-    section2Texte:
-      "Mise en place de campagnes Meta Ads ciblant les parents correspondant à la tranche d'âge des élèves et à la zone géographique de l'établissement. Optimisation continue pour garantir un équilibre entre volume et qualité des prospects.",
+    ...defaultSection2Fields(),
 
     section3Intro: "Mise en place d'un funnel de qualification permettant de filtrer automatiquement :",
     funnelCriteres: [...DEFAULT_FUNNEL_CRITERES],

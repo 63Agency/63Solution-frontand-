@@ -9,14 +9,16 @@ import {
   formatPropositionTotalMad,
 } from "@/src/components/dashboard/proposition/proposition-types";
 import {
-  deletePropositionLocal,
+  deletePropositionAndLocal,
   downloadPropositionPdf,
   generateNextPropositionNumero,
-  listPropositionsLocal,
   loadPropositionLocal,
+  loadPropositionsForDashboard,
+  propositionListSourceLabel,
   savePropositionLocal,
   sendPropositionEmail,
   type BackendPropositionListItem,
+  type PropositionFetchSource,
 } from "@/lib/proposition/backend-proposition";
 
 export type PropositionListItem = {
@@ -93,11 +95,24 @@ export function PropositionsSection() {
   const [pendingSend, setPendingSend] = useState<PropositionListItem | null>(null);
   const [sendEmailTo, setSendEmailTo] = useState("");
   const [sendMessage, setSendMessage] = useState("");
+  const [listSource, setListSource] = useState<PropositionFetchSource>("local");
 
-  const loadRows = useCallback(() => {
+  const loadRows = useCallback(async () => {
     setLoading(true);
     try {
-      setRows(listPropositionsLocal().map(mapApiRow));
+      const { items, source } = await loadPropositionsForDashboard();
+      setListSource(source);
+      setRows(items.map(mapApiRow));
+      if (source === "auth") {
+        toast.warning("Session expirée ou absente. Reconnecte-toi pour voir les propositions en base.");
+      } else if (source === "unreachable") {
+        toast.warning("API Nest injoignable sur le port 3002. Vérifie que le serveur Nest tourne.");
+      }
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "Impossible de charger les propositions.",
+      );
+      setRows([]);
     } finally {
       setLoading(false);
     }
@@ -144,7 +159,7 @@ export function PropositionsSection() {
     const id = pendingDelete.id;
     setDeletingId(id);
     try {
-      deletePropositionLocal(id);
+      await deletePropositionAndLocal(id, { numero: pendingDelete.numero });
       setRows((prev) => prev.filter((r) => r.id !== id));
       setPendingDelete(null);
       toast.success("Proposition supprimée.");
@@ -221,7 +236,9 @@ export function PropositionsSection() {
         <section className="min-h-[200px] rounded-xl border border-zinc-800 bg-zinc-900/70 p-5 lg:col-span-12">
           <div className="mb-4">
             <h3 className="text-base font-medium text-white">Propositions récentes</h3>
-            <p className="text-xs uppercase tracking-widest text-zinc-500">Aperçu</p>
+            <p className="text-xs uppercase tracking-widest text-zinc-500">
+              {propositionListSourceLabel(listSource)}
+            </p>
           </div>
 
           <div className="overflow-x-auto">
@@ -247,7 +264,9 @@ export function PropositionsSection() {
                 ) : sortedRows.length === 0 ? (
                   <tr>
                     <td colSpan={7} className="py-6 text-center text-zinc-500">
-                      Aucune proposition enregistrée pour le moment.
+                      {listSource === "api"
+                        ? "Aucune proposition en base. Créez-en une via « Nouvelle proposition »."
+                        : "Aucune proposition enregistrée pour le moment."}
                     </td>
                   </tr>
                 ) : (

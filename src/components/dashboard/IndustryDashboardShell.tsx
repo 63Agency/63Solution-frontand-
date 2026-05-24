@@ -3,7 +3,14 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState } from "react";
-import { FileText, LayoutDashboard, LogOut, PanelLeft, Users } from "lucide-react";
+import {
+  FileText,
+  LayoutDashboard,
+  LogOut,
+  MessageCircle,
+  PanelLeft,
+  Users,
+} from "lucide-react";
 import { cn } from "@/src/lib/utils";
 import { clearAuthSession } from "../../../lib/auth/backend-login";
 
@@ -24,6 +31,7 @@ export function IndustryDashboardShell({
       icon: FileText,
     },
     { href: "/dashboard/clients", label: "Clients", icon: Users },
+    { href: "/dashboard/conversations", label: "WhatsApp", icon: MessageCircle },
   ] as const;
 
   return (
@@ -86,7 +94,13 @@ export function IndustryDashboardShell({
           </button>
         </div>
       </aside>
-      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain bg-zinc-950">
+      <main
+        className={
+          pathname.startsWith("/dashboard/conversations")
+            ? "min-h-0 min-w-0 flex-1 overflow-hidden bg-zinc-950"
+            : "min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain bg-zinc-950"
+        }
+      >
         {children}
       </main>
       {showLogoutConfirm ? (
