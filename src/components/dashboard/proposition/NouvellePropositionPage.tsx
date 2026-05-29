@@ -241,7 +241,7 @@ export function NouvellePropositionPage() {
 
       <div className="overflow-x-hidden px-6 py-6 md:px-8 md:py-8">
         <div className="space-y-6">
-          <div className="grid gap-6 xl:grid-cols-2">
+          <div className="grid gap-6 lg:grid-cols-2">
             <section className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-4">
               <div className="flex items-center justify-between border-b border-zinc-700 pb-2">
                 <h2 className="font-mono text-xs uppercase tracking-widest text-zinc-300">
@@ -820,7 +820,7 @@ export function NouvellePropositionPage() {
             </div>
           </section>
 
-          <div className="grid gap-6 xl:grid-cols-2">
+          <div className="grid gap-6 lg:grid-cols-2">
             <section className="rounded-lg border border-zinc-800 bg-zinc-900/70 p-4">
               <h2 className="border-b border-zinc-700 pb-2 font-mono text-xs uppercase tracking-widest text-zinc-300">
                 Pourquoi choisir 63 AGENCY
