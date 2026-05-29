@@ -46,6 +46,12 @@ type PendingSend = {
   kind: "devis" | "facture";
 };
 
+console.log("FacturesDevisPage rendered");
+
+
+
+
+
 export function FacturesDevisPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
