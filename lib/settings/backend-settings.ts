@@ -1,0 +1,309 @@
+import { fetchCurrentUser } from "../auth/backend-login";
+import { canManageTeamUsers } from "../auth/roles";
+import type {
+  AdminProfile,
+  ChangePasswordPayload,
+  CreateTeamUserPayload,
+  TeamUser,
+  UpdateAdminProfilePayload,
+} from "./settings-types";
+
+const PROFILE_EXT_KEY = "agency_profile_extensions";
+const TEAM_USERS_KEY = "agency_team_users";
+
+type ProfileExtensions = Record<
+  string,
+  { prenom: string; nom: string; telephone?: string; ville?: string }
+>;
+
+function readProfileExtensions(): ProfileExtensions {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(PROFILE_EXT_KEY);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw) as unknown;
+    return parsed && typeof parsed === "object" ? (parsed as ProfileExtensions) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeProfileExtensions(data: ProfileExtensions): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(PROFILE_EXT_KEY, JSON.stringify(data));
+}
+
+function readTeamUsersLocal(): TeamUser[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(TEAM_USERS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter(
+        (u): u is TeamUser =>
+          !!u &&
+          typeof u === "object" &&
+          typeof (u as TeamUser).id === "string" &&
+          typeof (u as TeamUser).email === "string",
+      )
+      .map((u) => ({
+        ...u,
+        telephone: typeof u.telephone === "string" ? u.telephone : "",
+        ville: typeof u.ville === "string" ? u.ville : "",
+      }));
+  } catch {
+    return [];
+  }
+}
+
+function writeTeamUsersLocal(users: TeamUser[]): void {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(TEAM_USERS_KEY, JSON.stringify(users));
+}
+
+function splitNameFromEmail(email: string): { prenom: string; nom: string } {
+  const local = email.split("@")[0] ?? "";
+  const parts = local.replace(/[._-]+/g, " ").trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return {
+      prenom: parts[0] ?? "",
+      nom: parts.slice(1).join(" "),
+    };
+  }
+  return { prenom: local, nom: "" };
+}
+
+/** Profil admin — GET /auth/me + champs étendus (backend PATCH /users/me à venir). */
+export async function fetchAdminProfile(): Promise<AdminProfile> {
+  const { user } = await fetchCurrentUser();
+  const ext = readProfileExtensions()[user.id];
+  const fallback = splitNameFromEmail(user.email);
+  return {
+    id: user.id,
+    email: user.email,
+    role: user.role,
+    prenom: ext?.prenom?.trim() || fallback.prenom,
+    nom: ext?.nom?.trim() || fallback.nom,
+    telephone: ext?.telephone?.trim() ?? "",
+    ville: ext?.ville?.trim() ?? "",
+  };
+}
+
+/** PATCH /users/me — pour l’instant cache localStorage. */
+export async function updateAdminProfile(
+  payload: UpdateAdminProfilePayload,
+): Promise<AdminProfile> {
+  const current = await fetchAdminProfile();
+  const ext = readProfileExtensions();
+  ext[current.id] = {
+    prenom: payload.prenom.trim(),
+    nom: payload.nom.trim(),
+    telephone: payload.telephone.trim(),
+    ville: payload.ville.trim(),
+  };
+  writeProfileExtensions(ext);
+  // TODO backend: PATCH ${API}/users/me { prenom, nom, telephone, ville }
+  return {
+    ...current,
+    prenom: payload.prenom.trim(),
+    nom: payload.nom.trim(),
+    telephone: payload.telephone.trim(),
+    ville: payload.ville.trim(),
+  };
+}
+
+/** POST /auth/change-password — stub front (API à brancher). */
+export async function changeAdminPassword(payload: ChangePasswordPayload): Promise<void> {
+  const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+  if (base) {
+    const token = window.localStorage.getItem("agency_auth_access_token");
+    const res = await fetch(`${base}/auth/change-password`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: "include",
+      body: JSON.stringify(payload),
+    }).catch(() => null);
+
+    if (res?.ok) return;
+    if (res && res.status !== 404) {
+      const body = (await res.json().catch(() => null)) as { message?: string } | null;
+      throw new Error(
+        typeof body?.message === "string"
+          ? body.message
+          : `Changement de mot de passe impossible (${res.status})`,
+      );
+    }
+  }
+
+  if (!payload.currentPassword.trim() || !payload.newPassword.trim()) {
+    throw new Error("Tous les champs mot de passe sont obligatoires.");
+  }
+  if (payload.newPassword.length < 8) {
+    throw new Error("Le nouveau mot de passe doit contenir au moins 8 caractères.");
+  }
+  // Front-only fallback until backend is ready
+  await new Promise((r) => setTimeout(r, 400));
+}
+
+/** GET /users — liste équipe (localStorage en attendant le backend). */
+export async function fetchTeamUsers(): Promise<TeamUser[]> {
+  const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+  if (base) {
+    const token = window.localStorage.getItem("agency_auth_access_token");
+    const res = await fetch(`${base}/users`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
+    }).catch(() => null);
+
+    if (res?.ok) {
+      const raw = (await res.json().catch(() => null)) as unknown;
+      const list = Array.isArray(raw)
+        ? raw
+        : raw && typeof raw === "object" && Array.isArray((raw as { items?: unknown[] }).items)
+          ? (raw as { items: unknown[] }).items
+          : [];
+      const parsed = list
+        .map((row) => parseTeamUser(row))
+        .filter((u): u is TeamUser => u !== null);
+      if (parsed.length > 0) {
+        writeTeamUsersLocal(parsed);
+        return parsed.sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+        );
+      }
+    }
+  }
+
+  return readTeamUsersLocal().sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+}
+
+function parseTeamUser(row: unknown): TeamUser | null {
+  if (!row || typeof row !== "object") return null;
+  const r = row as Record<string, unknown>;
+  const id = String(r.id ?? "");
+  const email = String(r.email ?? "").trim();
+  if (!id || !email) return null;
+  const roleRaw = String(r.role ?? "admin_whatsapp").toLowerCase();
+  let role: TeamUser["role"] = "admin_whatsapp";
+  if (roleRaw === "admin" || roleRaw === "superadmin" || roleRaw === "super_admin") {
+    role = "admin";
+  } else if (roleRaw === "admin_whatsapp" || roleRaw === "adminwhatsapp") {
+    role = "admin_whatsapp";
+  }
+  return {
+    id,
+    email,
+    prenom: String(r.prenom ?? r.firstName ?? "").trim(),
+    nom: String(r.nom ?? r.lastName ?? r.name ?? "").trim(),
+    telephone: String(r.telephone ?? r.phone ?? "").trim(),
+    ville: String(r.ville ?? r.city ?? "").trim(),
+    role,
+    createdAt: String(r.createdAt ?? new Date().toISOString()),
+  };
+}
+
+/** POST /users — création utilisateur (localStorage si API absente). */
+export async function createTeamUser(payload: CreateTeamUserPayload): Promise<TeamUser> {
+  const email = payload.email.trim().toLowerCase();
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throw new Error("Email invalide.");
+  }
+  if (payload.password.length < 8) {
+    throw new Error("Le mot de passe doit contenir au moins 8 caractères.");
+  }
+
+  const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+  if (base) {
+    const token = window.localStorage.getItem("agency_auth_access_token");
+    const res = await fetch(`${base}/users`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: "include",
+      body: JSON.stringify({
+        prenom: payload.prenom.trim(),
+        nom: payload.nom.trim(),
+        email,
+        telephone: payload.telephone.trim(),
+        ville: payload.ville.trim(),
+        password: payload.password,
+        role: payload.role,
+      }),
+    }).catch(() => null);
+
+    if (res?.ok) {
+      const raw = await res.json().catch(() => null);
+      const parsed = parseTeamUser(raw);
+      if (parsed) return parsed;
+    }
+    if (res && res.status !== 404) {
+      const body = (await res.json().catch(() => null)) as { message?: string } | null;
+      throw new Error(
+        typeof body?.message === "string"
+          ? body.message
+          : `Création utilisateur impossible (${res.status})`,
+      );
+    }
+  }
+
+  const existing = readTeamUsersLocal();
+  if (existing.some((u) => u.email.toLowerCase() === email)) {
+    throw new Error("Un utilisateur avec cet email existe déjà.");
+  }
+
+  const user: TeamUser = {
+    id: crypto.randomUUID(),
+    prenom: payload.prenom.trim(),
+    nom: payload.nom.trim(),
+    email,
+    telephone: payload.telephone.trim(),
+    ville: payload.ville.trim(),
+    role: payload.role,
+    createdAt: new Date().toISOString(),
+  };
+  writeTeamUsersLocal([user, ...existing]);
+  return user;
+}
+
+/** DELETE /users/:id — stub local. */
+export async function deleteTeamUser(userId: string): Promise<void> {
+  const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+  if (base) {
+    const token = window.localStorage.getItem("agency_auth_access_token");
+    const res = await fetch(`${base}/users/${encodeURIComponent(userId)}`, {
+      method: "DELETE",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: "include",
+    }).catch(() => null);
+
+    if (res?.ok || res?.status === 204) {
+      writeTeamUsersLocal(readTeamUsersLocal().filter((u) => u.id !== userId));
+      return;
+    }
+    if (res && res.status !== 404) {
+      const body = (await res.json().catch(() => null)) as { message?: string } | null;
+      throw new Error(
+        typeof body?.message === "string"
+          ? body.message
+          : `Suppression impossible (${res.status})`,
+      );
+    }
+  }
+
+  writeTeamUsersLocal(readTeamUsersLocal().filter((u) => u.id !== userId));
+}
+
+export function isAdminRole(role: string): boolean {
+  return canManageTeamUsers(role);
+}
+
+export { canManageTeamUsers, shouldShowTeamUserInList } from "../auth/roles";

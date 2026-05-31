@@ -29,6 +29,19 @@ export function getStoredAccessToken(): string | null {
   return window.localStorage.getItem(STORAGE_ACCESS);
 }
 
+export function getStoredUser(): BackendLoginUser | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_USER);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as BackendLoginUser;
+    if (!parsed?.id || !parsed?.email) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
 export function clearAuthSession(): void {
   if (typeof window === "undefined") return;
   window.localStorage.removeItem(STORAGE_ACCESS);
@@ -54,16 +67,14 @@ export function persistAuthSession(payload: BackendLoginSuccess): void {
   window.localStorage.setItem(STORAGE_USER, JSON.stringify(payload.user));
 }
 
-/** Aligne avec le backend Nest (admin → /dashboard, sinon /home). */
+import { getDefaultDashboardRoute } from "./roles";
+
+/** Aligne avec le backend Nest (admin → /dashboard, admin WhatsApp → conversations). */
 export function resolvePostLoginRoute(payload: BackendLoginSuccess): string {
   if (payload.route === "/dashboard" || payload.route === "/home") {
     return payload.route;
   }
-  const r = payload.user.role?.toLowerCase().trim();
-  if (r === "admin" || r === "superadmin" || r === "super_admin") {
-    return "/dashboard";
-  }
-  return "/home";
+  return getDefaultDashboardRoute(payload.user.role ?? "");
 }
 
 export async function loginWithBackend(

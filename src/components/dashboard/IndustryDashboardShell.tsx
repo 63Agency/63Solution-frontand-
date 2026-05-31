@@ -1,18 +1,39 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import {
   FileText,
   LayoutDashboard,
   LogOut,
   MessageCircle,
   PanelLeft,
+  Settings,
   Users,
 } from "lucide-react";
 import { cn } from "@/src/lib/utils";
-import { clearAuthSession } from "../../../lib/auth/backend-login";
+import {
+  canAccessDashboardHref,
+  canAccessParametres,
+  getDefaultDashboardRoute,
+} from "@/lib/auth/roles";
+import {
+  clearAuthSession,
+  fetchCurrentUser,
+  getStoredUser,
+} from "../../../lib/auth/backend-login";
+
+const allNavItems = [
+  { href: "/dashboard", label: "Vue d'ensemble", icon: LayoutDashboard },
+  {
+    href: "/dashboard/factures",
+    label: "Devis, factures & propositions",
+    icon: FileText,
+  },
+  { href: "/dashboard/clients", label: "Clients", icon: Users },
+  { href: "/dashboard/conversations", label: "WhatsApp", icon: MessageCircle },
+] as const;
 
 export function IndustryDashboardShell({
   children,
@@ -20,19 +41,39 @@ export function IndustryDashboardShell({
   children: React.ReactNode;
 }>) {
   const pathname = usePathname();
+  const router = useRouter();
   const [collapsed, setCollapsed] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [userRole, setUserRole] = useState<string>(() => getStoredUser()?.role ?? "admin");
 
-  const items = [
-    { href: "/dashboard", label: "Vue d'ensemble", icon: LayoutDashboard },
-    {
-      href: "/dashboard/factures",
-      label: "Devis, factures & propositions",
-      icon: FileText,
-    },
-    { href: "/dashboard/clients", label: "Clients", icon: Users },
-    { href: "/dashboard/conversations", label: "WhatsApp", icon: MessageCircle },
-  ] as const;
+  useEffect(() => {
+    let cancelled = false;
+    void fetchCurrentUser()
+      .then(({ user }) => {
+        if (!cancelled) setUserRole(user.role);
+      })
+      .catch(() => {
+        const stored = getStoredUser();
+        if (!cancelled && stored?.role) setUserRole(stored.role);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!pathname || !userRole) return;
+    if (!canAccessDashboardHref(pathname, userRole)) {
+      router.replace(getDefaultDashboardRoute(userRole));
+    }
+  }, [pathname, router, userRole]);
+
+  const navItems = useMemo(
+    () => allNavItems.filter((item) => canAccessDashboardHref(item.href, userRole)),
+    [userRole],
+  );
+
+  const showParametres = canAccessParametres(userRole);
 
   return (
     <div className="flex h-dvh max-h-dvh overflow-hidden bg-zinc-950 text-zinc-100">
@@ -60,7 +101,7 @@ export function IndustryDashboardShell({
           ) : null}
         </div>
         <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
-          {items.map((item) => {
+          {navItems.map((item) => {
             const Icon = item.icon;
             const active =
               item.href === "/dashboard"
@@ -84,6 +125,21 @@ export function IndustryDashboardShell({
           })}
         </nav>
         <div className="border-t border-zinc-800 p-2">
+          {showParametres ? (
+            <Link
+              href="/dashboard/parametres"
+              className={cn(
+                "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                pathname === "/dashboard/parametres" ||
+                  pathname.startsWith("/dashboard/parametres/")
+                  ? "bg-zinc-800 text-white"
+                  : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200",
+              )}
+            >
+              <Settings className="size-4 shrink-0" aria-hidden />
+              {!collapsed ? <span>Paramètres</span> : null}
+            </Link>
+          ) : null}
           <button
             type="button"
             onClick={() => setShowLogoutConfirm(true)}
