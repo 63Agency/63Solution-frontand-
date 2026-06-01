@@ -32,9 +32,16 @@ export function SettingsProfileSidebar({
     <aside>
       <div className="rounded-xl border border-zinc-800 bg-zinc-900/80 p-6 shadow-lg shadow-black/20 backdrop-blur-sm">
         <div className="flex flex-col items-center text-center">
-          <div className="flex size-24 items-center justify-center rounded-full border-4 border-zinc-900 bg-linear-to-br from-indigo-600 to-violet-700 text-2xl font-bold text-white shadow-lg ring-2 ring-indigo-500/30">
+          <div className="flex size-24 items-center justify-center overflow-hidden rounded-full border-4 border-zinc-900 bg-linear-to-br from-indigo-600 to-violet-700 text-2xl font-bold text-white shadow-lg ring-2 ring-indigo-500/30">
             {loading ? (
               <Loader2 className="size-8 animate-spin text-indigo-200" aria-hidden />
+            ) : profile?.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={profile.avatarUrl}
+                alt=""
+                className="size-full object-cover"
+              />
             ) : profile ? (
               profileInitials(profile.prenom, profile.nom, profile.email)
             ) : (

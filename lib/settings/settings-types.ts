@@ -6,6 +6,7 @@ export type AdminProfile = {
   nom: string;
   telephone: string;
   ville: string;
+  avatarUrl: string;
 };
 
 export type UpdateAdminProfilePayload = {
@@ -13,6 +14,7 @@ export type UpdateAdminProfilePayload = {
   nom: string;
   telephone: string;
   ville: string;
+  avatarUrl?: string;
 };
 
 export type ChangePasswordPayload = {

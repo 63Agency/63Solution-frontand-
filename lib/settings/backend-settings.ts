@@ -13,8 +13,31 @@ const TEAM_USERS_KEY = "agency_team_users";
 
 type ProfileExtensions = Record<
   string,
-  { prenom: string; nom: string; telephone?: string; ville?: string }
+  {
+    prenom: string;
+    nom: string;
+    telephone?: string;
+    ville?: string;
+    avatarUrl?: string;
+  }
 >;
+
+function pickAvatarUrl(row: Record<string, unknown>): string {
+  const candidates = [
+    row.avatarUrl,
+    row.avatar_url,
+    row.photoUrl,
+    row.photo_url,
+    row.profileImageUrl,
+    row.profile_image_url,
+    row.imageUrl,
+    row.image_url,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim().startsWith("http")) return c.trim();
+  }
+  return "";
+}
 
 function readProfileExtensions(): ProfileExtensions {
   if (typeof window === "undefined") return {};
@@ -75,42 +98,101 @@ function splitNameFromEmail(email: string): { prenom: string; nom: string } {
   return { prenom: local, nom: "" };
 }
 
-/** Profil admin — GET /auth/me + champs étendus (backend PATCH /users/me à venir). */
+/** Profil admin — GET /auth/me + champs étendus (PATCH /users/me si disponible). */
 export async function fetchAdminProfile(): Promise<AdminProfile> {
   const { user } = await fetchCurrentUser();
+  const u = user as unknown as Record<string, unknown>;
   const ext = readProfileExtensions()[user.id];
   const fallback = splitNameFromEmail(user.email);
+  const apiAvatar = pickAvatarUrl(u);
   return {
     id: user.id,
     email: user.email,
     role: user.role,
-    prenom: ext?.prenom?.trim() || fallback.prenom,
-    nom: ext?.nom?.trim() || fallback.nom,
-    telephone: ext?.telephone?.trim() ?? "",
-    ville: ext?.ville?.trim() ?? "",
+    prenom: String(u.prenom ?? u.firstName ?? ext?.prenom ?? fallback.prenom).trim(),
+    nom: String(u.nom ?? u.lastName ?? ext?.nom ?? fallback.nom).trim(),
+    telephone: String(u.telephone ?? u.phone ?? ext?.telephone ?? "").trim(),
+    ville: String(u.ville ?? u.city ?? ext?.ville ?? "").trim(),
+    avatarUrl: apiAvatar || ext?.avatarUrl?.trim() || "",
   };
 }
 
-/** PATCH /users/me — pour l’instant cache localStorage. */
+/** PATCH /users/me — API Nest si disponible, sinon cache localStorage. */
 export async function updateAdminProfile(
   payload: UpdateAdminProfilePayload,
 ): Promise<AdminProfile> {
   const current = await fetchAdminProfile();
+  const avatarUrl =
+    payload.avatarUrl !== undefined ? payload.avatarUrl.trim() : current.avatarUrl;
+
+  const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+  if (base) {
+    const token = window.localStorage.getItem("agency_auth_access_token");
+    const body = {
+      prenom: payload.prenom.trim(),
+      nom: payload.nom.trim(),
+      telephone: payload.telephone.trim(),
+      ville: payload.ville.trim(),
+      avatarUrl: avatarUrl || null,
+    };
+    const res = await fetch(`${base}/users/me`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      credentials: "include",
+      body: JSON.stringify(body),
+    }).catch(() => null);
+
+    if (res?.ok) {
+      const raw = (await res.json().catch(() => null)) as unknown;
+      const row =
+        raw && typeof raw === "object" && (raw as { user?: unknown }).user
+          ? ((raw as { user: unknown }).user as Record<string, unknown>)
+          : raw && typeof raw === "object"
+            ? (raw as Record<string, unknown>)
+            : null;
+      if (row) {
+        const ext = readProfileExtensions();
+        ext[current.id] = {
+          prenom: String(row.prenom ?? body.prenom).trim(),
+          nom: String(row.nom ?? body.nom).trim(),
+          telephone: String(row.telephone ?? body.telephone).trim(),
+          ville: String(row.ville ?? body.ville).trim(),
+          avatarUrl: pickAvatarUrl(row) || avatarUrl,
+        };
+        writeProfileExtensions(ext);
+        return {
+          id: String(row.id ?? current.id),
+          email: String(row.email ?? current.email),
+          role: String(row.role ?? current.role),
+          prenom: ext[current.id]!.prenom,
+          nom: ext[current.id]!.nom,
+          telephone: ext[current.id]!.telephone ?? "",
+          ville: ext[current.id]!.ville ?? "",
+          avatarUrl: ext[current.id]!.avatarUrl ?? "",
+        };
+      }
+    }
+  }
+
   const ext = readProfileExtensions();
   ext[current.id] = {
     prenom: payload.prenom.trim(),
     nom: payload.nom.trim(),
     telephone: payload.telephone.trim(),
     ville: payload.ville.trim(),
+    avatarUrl,
   };
   writeProfileExtensions(ext);
-  // TODO backend: PATCH ${API}/users/me { prenom, nom, telephone, ville }
   return {
     ...current,
     prenom: payload.prenom.trim(),
     nom: payload.nom.trim(),
     telephone: payload.telephone.trim(),
     ville: payload.ville.trim(),
+    avatarUrl,
   };
 }
 

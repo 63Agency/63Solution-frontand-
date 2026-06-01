@@ -5,6 +5,7 @@ import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { updateAdminProfile } from "@/lib/settings/backend-settings";
 import type { AdminProfile } from "@/lib/settings/settings-types";
+import { ProfileAvatarEditor } from "./ProfileAvatarEditor";
 import { btnPrimary, fieldClass, labelClass } from "./settings-ui";
 
 type SettingsProfileSectionProps = {
@@ -24,7 +25,9 @@ export function SettingsProfileSection({
   const [nom, setNom] = useState("");
   const [telephone, setTelephone] = useState("");
   const [ville, setVille] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState("");
   const [saving, setSaving] = useState(false);
+  const [avatarSaving, setAvatarSaving] = useState(false);
 
   useEffect(() => {
     if (profile) {
@@ -32,8 +35,30 @@ export function SettingsProfileSection({
       setNom(profile.nom);
       setTelephone(profile.telephone);
       setVille(profile.ville);
+      setAvatarUrl(profile.avatarUrl);
     }
   }, [profile]);
+
+  const persistAvatar = async (url: string) => {
+    if (!profile) return;
+    setAvatarSaving(true);
+    try {
+      const updated = await updateAdminProfile({
+        prenom,
+        nom,
+        telephone,
+        ville,
+        avatarUrl: url,
+      });
+      setAvatarUrl(updated.avatarUrl);
+      onProfileUpdated(updated);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Enregistrement de la photo impossible.");
+      setAvatarUrl(profile.avatarUrl);
+    } finally {
+      setAvatarSaving(false);
+    }
+  };
 
   const handleSave = async () => {
     if (!prenom.trim() || !nom.trim()) {
@@ -42,7 +67,7 @@ export function SettingsProfileSection({
     }
     setSaving(true);
     try {
-      const updated = await updateAdminProfile({ prenom, nom, telephone, ville });
+      const updated = await updateAdminProfile({ prenom, nom, telephone, ville, avatarUrl });
       onProfileUpdated(updated);
       toast.success("Profil enregistré.");
     } catch (e) {
@@ -69,10 +94,25 @@ export function SettingsProfileSection({
     prenom.trim() !== profile.prenom ||
     nom.trim() !== profile.nom ||
     telephone.trim() !== profile.telephone ||
-    ville.trim() !== profile.ville;
+    ville.trim() !== profile.ville ||
+    avatarUrl.trim() !== profile.avatarUrl;
 
   return (
     <div>
+      <div className="mb-8 border-b border-zinc-800 pb-8">
+        <ProfileAvatarEditor
+          prenom={prenom}
+          nom={nom}
+          email={profile.email}
+          avatarUrl={avatarUrl}
+          disabled={saving || avatarSaving}
+          onAvatarChange={(url) => {
+            setAvatarUrl(url);
+            void persistAvatar(url);
+          }}
+        />
+      </div>
+
       <div className="grid gap-5 sm:grid-cols-2">
         <div>
           <label className={labelClass} htmlFor="profile-prenom">
@@ -109,7 +149,7 @@ export function SettingsProfileSection({
             value={telephone}
             onChange={(e) => setTelephone(e.target.value)}
             autoComplete="tel"
-            placeholder="+33 6 12 34 56 78"
+            placeholder="+212 6 12 34 56 78"
           />
         </div>
         <div>
@@ -122,7 +162,7 @@ export function SettingsProfileSection({
             value={ville}
             onChange={(e) => setVille(e.target.value)}
             autoComplete="address-level2"
-            placeholder="Paris"
+            placeholder="Casablanca"
           />
         </div>
         <div className="sm:col-span-2">

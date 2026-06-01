@@ -67,6 +67,9 @@ export function DashboardTopBar() {
           <div className="flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-linear-to-br from-indigo-600 to-violet-700 text-sm font-semibold text-white">
             {loading ? (
               <Loader2 className="size-4 animate-spin" aria-hidden />
+            ) : profile?.avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={profile.avatarUrl} alt="" className="size-full object-cover" />
             ) : profile ? (
               profileInitials(profile.prenom, profile.nom, profile.email)
             ) : (
