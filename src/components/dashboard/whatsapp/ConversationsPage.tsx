@@ -1,16 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { toast } from "sonner";
 import {
   fetchWhatsAppConversations,
   getWhatsAppPollIntervalMs,
 } from "@/lib/whatsapp/backend-whatsapp";
 import type { WhatsAppConversation } from "@/lib/whatsapp/types";
+import {
+  setActiveWhatsAppConversationId,
+  useNotifications,
+} from "../notifications/NotificationsProvider";
 import { ChatThread } from "./ChatThread";
 import { ConversationList } from "./ConversationList";
 
 export function ConversationsPage() {
+  const searchParams = useSearchParams();
+  const { refresh: refreshNotifications } = useNotifications();
   const [conversations, setConversations] = useState<WhatsAppConversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -51,6 +58,16 @@ export function ConversationsPage() {
   }, [loadConversations]);
 
   useEffect(() => {
+    const fromUrl = searchParams.get("c");
+    if (fromUrl) setSelectedId(fromUrl);
+  }, [searchParams]);
+
+  useEffect(() => {
+    setActiveWhatsAppConversationId(selectedId);
+    return () => setActiveWhatsAppConversationId(null);
+  }, [selectedId]);
+
+  useEffect(() => {
     const ms = getWhatsAppPollIntervalMs();
     const id = window.setInterval(() => {
       setPollTick((t) => t + 1);
@@ -60,15 +77,18 @@ export function ConversationsPage() {
   }, [loadConversations]);
 
   return (
-    <div className="flex h-dvh max-h-dvh flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-zinc-950">
       {apiUnavailable ? (
-        <div className="shrink-0 border-b border-amber-800/50 bg-amber-950/40 px-4 py-2 text-center text-xs text-amber-200">
-          API WhatsApp non disponible — le backend doit exposer GET /whatsapp/conversations
-          (voir instructions envoyées au dev backend).
+        <div className="shrink-0 flex items-center justify-center gap-2 border-b border-amber-800/40 bg-amber-950/50 px-4 py-2.5 text-center text-xs text-amber-100/90">
+          <span className="size-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden />
+          API WhatsApp indisponible — le backend doit exposer{" "}
+          <code className="rounded bg-amber-950/80 px-1 py-0.5 font-mono text-[10px] text-amber-200">
+            GET /whatsapp/conversations
+          </code>
         </div>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 md:grid-cols-[minmax(280px,360px)_1fr]">
+      <div className="grid min-h-0 flex-1 gap-0 md:grid-cols-[minmax(300px,380px)_1fr] md:gap-3 md:p-3">
         <div
           className={`min-h-0 ${selectedId ? "hidden md:block" : "block"}`}
         >
@@ -87,7 +107,10 @@ export function ConversationsPage() {
           <ChatThread
             conversation={selected}
             pollTick={pollTick}
-            onConversationUpdate={() => void loadConversations(true)}
+            onConversationUpdate={() => {
+              void loadConversations(true);
+              void refreshNotifications();
+            }}
             onBack={() => setSelectedId(null)}
           />
         </div>

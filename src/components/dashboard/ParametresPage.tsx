@@ -12,7 +12,6 @@ import {
   canViewTeamUsersSection,
   shouldShowTeamUserInList,
 } from "@/lib/auth/roles";
-import { SettingsPageHeader } from "./settings/SettingsPageHeader";
 import { SettingsPasswordSection } from "./settings/SettingsPasswordSection";
 import { SettingsProfileSection } from "./settings/SettingsProfileSection";
 import { SettingsProfileSidebar } from "./settings/SettingsProfileSidebar";
@@ -77,8 +76,6 @@ export function ParametresPage() {
 
   return (
     <div className="min-h-full pb-10">
-      <SettingsPageHeader profile={profile} loading={profileLoading} />
-
       <div className="px-6 pt-6 md:px-8 md:pt-8">
         <div className="mx-auto grid max-w-6xl gap-6 lg:grid-cols-[minmax(260px,300px)_1fr] lg:gap-8">
           <SettingsProfileSidebar

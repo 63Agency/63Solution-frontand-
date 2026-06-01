@@ -47,3 +47,22 @@ export type WhatsAppMessagesPage = {
   items: WhatsAppMessage[];
   nextCursor?: string | null;
 };
+
+export type BulkWhatsAppSendPayload = {
+  phoneNumbers: string[];
+  text: string;
+};
+
+export type BulkWhatsAppSendResultItem = {
+  phoneNumber: string;
+  success: boolean;
+  conversationId?: string;
+  messageId?: string;
+  error?: string;
+};
+
+export type BulkWhatsAppSendResult = {
+  sent: number;
+  failed: number;
+  results: BulkWhatsAppSendResultItem[];
+};

@@ -1,5 +1,8 @@
 import { getApiBaseUrl, getStoredAccessToken } from "../auth/backend-login";
 import type {
+  BulkWhatsAppSendPayload,
+  BulkWhatsAppSendResult,
+  BulkWhatsAppSendResultItem,
   SendWhatsAppMessagePayload,
   WhatsAppConversation,
   WhatsAppMessage,
@@ -290,4 +293,123 @@ export function getWhatsAppPollIntervalMs(): number {
   const raw = process.env.NEXT_PUBLIC_WHATSAPP_POLL_MS;
   const n = raw ? Number.parseInt(raw, 10) : 3000;
   return Number.isFinite(n) && n >= 1500 ? n : 3000;
+}
+
+function normalizeDigits(phone: string): string {
+  let digits = phone.replace(/\D/g, "");
+  if (digits.startsWith("00")) digits = digits.slice(2);
+  if (digits.length === 10 && digits.startsWith("0")) digits = `212${digits.slice(1)}`;
+  return digits;
+}
+
+function findConversationByPhone(
+  conversations: WhatsAppConversation[],
+  digits: string,
+): WhatsAppConversation | undefined {
+  return conversations.find((c) => {
+    const d = normalizeDigits(c.phoneNumber);
+    return d === digits || d.endsWith(digits) || digits.endsWith(d);
+  });
+}
+
+function parseBulkResult(raw: unknown): BulkWhatsAppSendResult | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const resultsRaw = Array.isArray(o.results) ? o.results : [];
+  const results: BulkWhatsAppSendResultItem[] = resultsRaw
+    .map((row) => {
+      if (!row || typeof row !== "object") return null;
+      const r = row as Record<string, unknown>;
+      const phoneNumber = String(r.phoneNumber ?? r.phone ?? "");
+      if (!phoneNumber) return null;
+      return {
+        phoneNumber,
+        success: r.success === true || r.ok === true,
+        conversationId:
+          typeof r.conversationId === "string" ? r.conversationId : undefined,
+        messageId: typeof r.messageId === "string" ? r.messageId : undefined,
+        error: typeof r.error === "string" ? r.error : undefined,
+      };
+    })
+    .filter((v): v is BulkWhatsAppSendResultItem => v !== null);
+
+  if (results.length === 0) return null;
+  const sent =
+    typeof o.sent === "number" ? o.sent : results.filter((r) => r.success).length;
+  const failed =
+    typeof o.failed === "number" ? o.failed : results.filter((r) => !r.success).length;
+  return { sent, failed, results };
+}
+
+/**
+ * Envoi à plusieurs numéros.
+ * Essaie POST /whatsapp/broadcast, sinon envoi conversation par conversation.
+ */
+export async function sendBulkWhatsAppMessages(
+  payload: BulkWhatsAppSendPayload,
+): Promise<BulkWhatsAppSendResult> {
+  const base = getApiBaseUrl();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL manquante.");
+
+  const text = payload.text.trim();
+  if (!text) throw new Error("Le message ne peut pas être vide.");
+
+  const phoneNumbers = payload.phoneNumbers
+    .map((p) => normalizeDigits(p))
+    .filter((d) => d.length >= 9);
+  if (phoneNumbers.length === 0) {
+    throw new Error("Ajoutez au moins un numéro valide.");
+  }
+
+  const body = JSON.stringify({ phoneNumbers, text });
+
+  for (const path of ["/whatsapp/broadcast", "/whatsapp/messages/bulk"]) {
+    const res = await fetch(`${base}${path}`, {
+      method: "POST",
+      headers: buildAuthHeaders(),
+      credentials: "include",
+      body,
+    });
+    if (res.status === 404) continue;
+    if (!res.ok) {
+      return parseApiError(res, `POST ${path}`);
+    }
+    const parsed = parseBulkResult(await res.json().catch(() => null));
+    if (parsed) return parsed;
+  }
+
+  const conversations = await fetchWhatsAppConversations();
+  const results: BulkWhatsAppSendResultItem[] = [];
+
+  for (const phone of phoneNumbers) {
+    const conv = findConversationByPhone(conversations, phone);
+    if (!conv) {
+      results.push({
+        phoneNumber: phone,
+        success: false,
+        error:
+          "Aucune conversation pour ce numéro. Le contact doit avoir déjà écrit sur WhatsApp.",
+      });
+      continue;
+    }
+    try {
+      const sent = await sendWhatsAppMessage(conv.id, { text });
+      results.push({
+        phoneNumber: phone,
+        success: true,
+        conversationId: conv.id,
+        messageId: sent.id,
+      });
+    } catch (e) {
+      results.push({
+        phoneNumber: phone,
+        success: false,
+        conversationId: conv.id,
+        error: e instanceof Error ? e.message : "Échec envoi",
+      });
+    }
+  }
+
+  const sent = results.filter((r) => r.success).length;
+  return { sent, failed: results.length - sent, results };
 }
