@@ -1,4 +1,13 @@
+import { Suspense } from "react";
 import { IndustryDashboardShell } from "../../src/components/dashboard/IndustryDashboardShell";
+
+function DashboardShellFallback() {
+  return (
+    <div className="flex h-dvh items-center justify-center bg-zinc-950 text-sm text-zinc-500">
+      Chargement…
+    </div>
+  );
+}
 
 export default function DashboardLayout({
   children,
@@ -7,7 +16,9 @@ export default function DashboardLayout({
 }>) {
   return (
     <div className="min-h-dvh bg-zinc-950">
-      <IndustryDashboardShell>{children}</IndustryDashboardShell>
+      <Suspense fallback={<DashboardShellFallback />}>
+        <IndustryDashboardShell>{children}</IndustryDashboardShell>
+      </Suspense>
     </div>
   );
 }

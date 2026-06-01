@@ -316,22 +316,27 @@ function parseBulkResult(raw: unknown): BulkWhatsAppSendResult | null {
   if (!raw || typeof raw !== "object") return null;
   const o = raw as Record<string, unknown>;
   const resultsRaw = Array.isArray(o.results) ? o.results : [];
-  const results: BulkWhatsAppSendResultItem[] = resultsRaw
-    .map((row) => {
-      if (!row || typeof row !== "object") return null;
-      const r = row as Record<string, unknown>;
-      const phoneNumber = String(r.phoneNumber ?? r.phone ?? "");
-      if (!phoneNumber) return null;
-      return {
-        phoneNumber,
-        success: r.success === true || r.ok === true,
-        conversationId:
-          typeof r.conversationId === "string" ? r.conversationId : undefined,
-        messageId: typeof r.messageId === "string" ? r.messageId : undefined,
-        error: typeof r.error === "string" ? r.error : undefined,
-      };
-    })
-    .filter((v): v is BulkWhatsAppSendResultItem => v !== null);
+  const results: BulkWhatsAppSendResultItem[] = resultsRaw.flatMap((row) => {
+    if (!row || typeof row !== "object") return [];
+    const r = row as Record<string, unknown>;
+    const phoneNumber = String(r.phoneNumber ?? r.phone ?? "");
+    if (!phoneNumber) return [];
+
+    const item: BulkWhatsAppSendResultItem = {
+      phoneNumber,
+      success: r.success === true || r.ok === true,
+    };
+    if (typeof r.conversationId === "string") {
+      item.conversationId = r.conversationId;
+    }
+    if (typeof r.messageId === "string") {
+      item.messageId = r.messageId;
+    }
+    if (typeof r.error === "string") {
+      item.error = r.error;
+    }
+    return [item];
+  });
 
   if (results.length === 0) return null;
   const sent =
