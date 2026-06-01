@@ -19,6 +19,8 @@ import {
   formatWhatsAppPhone,
 } from "./whatsapp-utils";
 
+const WHATSAPP_CHAT_BG = "/images/image.png";
+
 type Props = {
   conversation: WhatsAppConversation | null;
   pollTick: number;
@@ -170,13 +172,8 @@ export function ChatThread({
       </header>
 
       <div
-        className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-4 sm:px-5"
-        style={{
-          backgroundColor: "#0b141a",
-          backgroundImage:
-            "radial-gradient(circle at 1px 1px, rgb(32 44 51 / 0.55) 1px, transparent 0)",
-          backgroundSize: "20px 20px",
-        }}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-[#0b141a] bg-cover bg-center bg-no-repeat px-3 py-4 sm:px-5"
+        style={{ backgroundImage: `url(${WHATSAPP_CHAT_BG})` }}
       >
         {loading ? (
           <div className="flex justify-center py-12">
