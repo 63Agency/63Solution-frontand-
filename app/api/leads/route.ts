@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseClient } from "@/lib/supabase/client";
+import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { mapClickUpLeadRow } from "@/lib/leads/types";
 
 function parseStatuses(raw: string | null): string[] {
@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
     const listName = searchParams.get("list_name")?.trim() || null;
     const statuses = parseStatuses(searchParams.get("status"));
 
-    const supabase = createSupabaseClient();
+    const supabase = createSupabaseServerClient();
 
     let query = supabase
       .from("clickup_leads")
