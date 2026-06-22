@@ -16,6 +16,7 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith("/dashboard/conversations")) return "Conversations";
   if (pathname.startsWith("/dashboard/factures")) return "Devis, factures & propositions";
   if (pathname.startsWith("/dashboard/clients")) return "Clients";
+  if (pathname.startsWith("/dashboard/leads")) return "Leads";
   if (pathname === "/dashboard") return "Vue d'ensemble";
   return "63 Agency";
 }

@@ -36,6 +36,7 @@ const FULL_ADMIN_NAV = [
   "/dashboard",
   "/dashboard/factures",
   "/dashboard/clients",
+  "/dashboard/leads",
   "/dashboard/conversations",
 ] as const;
 

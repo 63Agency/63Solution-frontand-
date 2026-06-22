@@ -14,6 +14,7 @@ import {
   ChevronDown,
   Send,
   Settings,
+  UserPlus,
   Users,
 } from "lucide-react";
 import { cn } from "@/src/lib/utils";
@@ -52,6 +53,7 @@ const facturesSubItems = [
 const allNavItems = [
   { href: "/dashboard", label: "Vue d'ensemble", icon: LayoutDashboard },
   { href: "/dashboard/clients", label: "Clients", icon: Users },
+  { href: "/dashboard/leads", label: "Leads", icon: UserPlus },
 ] as const;
 
 function isWhatsAppPath(pathname: string): boolean {
