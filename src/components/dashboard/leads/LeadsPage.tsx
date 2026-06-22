@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, Filter, UserPlus } from "lucide-react";
-import { fetchLeads } from "@/lib/leads/api-leads";
+import { fetchLeads, LEADS_PER_PAGE } from "@/lib/leads/api-leads";
 import type { ClickUpLead } from "@/lib/leads/types";
 import { cn } from "@/src/lib/utils";
 import { LeadStatusBadge } from "./LeadStatusBadge";
@@ -21,9 +21,25 @@ function formatCreatedAt(iso: string): string {
   });
 }
 
+function buildPageItems(currentPage: number, totalPages: number): (number | "...")[] {
+  if (totalPages <= 3) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const items: (number | "...")[] = [1];
+  const start = Math.max(2, currentPage - 1);
+  const end = Math.min(totalPages - 1, currentPage + 1);
+  if (start > 2) items.push("...");
+  for (let page = start; page <= end; page += 1) items.push(page);
+  if (end < totalPages - 1) items.push("...");
+  items.push(totalPages);
+  return items;
+}
+
 export function LeadsPage() {
   const [leads, setLeads] = useState<ClickUpLead[]>([]);
   const [total, setTotal] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
   const [listNames, setListNames] = useState<string[]>([]);
   const [statusOptions, setStatusOptions] = useState<string[]>([]);
   const [selectedListName, setSelectedListName] = useState<string | null>(null);
@@ -41,10 +57,13 @@ export function LeadsPage() {
       const result = await fetchLeads({
         listName: selectedListName,
         statuses: selectedStatuses,
+        page: currentPage,
+        pageSize: LEADS_PER_PAGE,
       });
 
       setLeads(result.leads);
       setTotal(result.total);
+      setTotalPages(result.totalPages);
 
       if (result.filters) {
         setListNames(result.filters.listNames);
@@ -53,15 +72,22 @@ export function LeadsPage() {
     } catch (err) {
       setLeads([]);
       setTotal(0);
+      setTotalPages(1);
       setError(err instanceof Error ? err.message : "Impossible de charger les leads.");
     } finally {
       setLoading(false);
     }
-  }, [selectedListName, selectedStatuses]);
+  }, [selectedListName, selectedStatuses, currentPage]);
 
   useEffect(() => {
     void loadLeads();
   }, [loadLeads]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   useEffect(() => {
     if (!statusMenuOpen) return;
@@ -82,7 +108,13 @@ export function LeadsPage() {
     return `${selectedStatuses.length} statuses`;
   }, [selectedStatuses]);
 
+  const pageItems = useMemo(
+    () => buildPageItems(currentPage, totalPages),
+    [currentPage, totalPages],
+  );
+
   const toggleStatus = (status: string) => {
+    setCurrentPage(1);
     setSelectedStatuses((current) =>
       current.includes(status) ? current.filter((value) => value !== status) : [...current, status],
     );
@@ -136,7 +168,10 @@ export function LeadsPage() {
                   >
                     <button
                       type="button"
-                      onClick={() => setSelectedStatuses([])}
+                      onClick={() => {
+                        setCurrentPage(1);
+                        setSelectedStatuses([]);
+                      }}
                       className="mb-1 w-full rounded px-2 py-1.5 text-left text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
                     >
                       Clear status filter
@@ -171,7 +206,10 @@ export function LeadsPage() {
           <div className="mb-5 flex flex-wrap gap-2">
             <button
               type="button"
-              onClick={() => setSelectedListName(null)}
+              onClick={() => {
+                setCurrentPage(1);
+                setSelectedListName(null);
+              }}
               className={cn(
                 "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                 selectedListName === null
@@ -185,7 +223,10 @@ export function LeadsPage() {
               <button
                 key={listName}
                 type="button"
-                onClick={() => setSelectedListName(listName)}
+                onClick={() => {
+                  setCurrentPage(1);
+                  setSelectedListName(listName);
+                }}
                 className={cn(
                   "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
                   selectedListName === listName
@@ -201,7 +242,7 @@ export function LeadsPage() {
           {error ? (
             <p className="py-8 text-center text-sm text-red-400">{error}</p>
           ) : loading ? (
-            <LeadsTableSkeleton />
+            <LeadsTableSkeleton rows={LEADS_PER_PAGE} />
           ) : leads.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
               <UserPlus className="size-10 text-zinc-700" aria-hidden />
@@ -213,35 +254,84 @@ export function LeadsPage() {
               </p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[760px] border-collapse font-mono text-sm text-zinc-300">
-                <thead>
-                  <tr className="border-b border-zinc-700 text-left text-[10px] uppercase tracking-widest text-zinc-500">
-                    <th className="pb-3 pr-4 font-normal">Name</th>
-                    <th className="pb-3 pr-4 font-normal">Phone</th>
-                    <th className="pb-3 pr-4 font-normal">Status</th>
-                    <th className="pb-3 pr-4 font-normal">List name</th>
-                    <th className="pb-3 font-normal">Created at</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {leads.map((lead) => (
-                    <tr
-                      key={lead.id}
-                      className="border-b border-zinc-800 transition hover:bg-zinc-800/40"
-                    >
-                      <td className="py-3 pr-4 text-white">{lead.name || "—"}</td>
-                      <td className="py-3 pr-4">{lead.phone || "—"}</td>
-                      <td className="py-3 pr-4">
-                        <LeadStatusBadge status={lead.status} />
-                      </td>
-                      <td className="py-3 pr-4">{lead.list_name || "—"}</td>
-                      <td className="py-3 text-zinc-400">{formatCreatedAt(lead.created_at)}</td>
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[760px] border-collapse font-mono text-sm text-zinc-300">
+                  <thead>
+                    <tr className="border-b border-zinc-700 text-left text-[10px] uppercase tracking-widest text-zinc-500">
+                      <th className="pb-3 pr-4 font-normal">Name</th>
+                      <th className="pb-3 pr-4 font-normal">Phone</th>
+                      <th className="pb-3 pr-4 font-normal">Status</th>
+                      <th className="pb-3 pr-4 font-normal">List name</th>
+                      <th className="pb-3 font-normal">Created at</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {leads.map((lead) => (
+                      <tr
+                        key={lead.id}
+                        className="border-b border-zinc-800 transition hover:bg-zinc-800/40"
+                      >
+                        <td className="py-3 pr-4 text-white">{lead.name || "—"}</td>
+                        <td className="py-3 pr-4">{lead.phone || "—"}</td>
+                        <td className="py-3 pr-4">
+                          <LeadStatusBadge status={lead.status} />
+                        </td>
+                        <td className="py-3 pr-4">{lead.list_name || "—"}</td>
+                        <td className="py-3 text-zinc-400">{formatCreatedAt(lead.created_at)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              {totalPages > 1 ? (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 pt-3 font-mono text-[11px] uppercase tracking-widest text-zinc-400">
+                  <p>
+                    Page {currentPage} / {totalPages} — {total} lead{total !== 1 ? "s" : ""}
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                      disabled={currentPage === 1}
+                      className="rounded border border-zinc-700 px-2.5 py-1.5 text-zinc-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Précédent
+                    </button>
+                    {pageItems.map((item, idx) =>
+                      item === "..." ? (
+                        <span key={`dots-${idx}`} className="px-1 text-zinc-500">
+                          …
+                        </span>
+                      ) : (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => setCurrentPage(item)}
+                          className={cn(
+                            "rounded border px-2.5 py-1.5",
+                            item === currentPage
+                              ? "border-zinc-500 bg-zinc-800 text-white"
+                              : "border-zinc-700 text-zinc-300 hover:bg-zinc-800",
+                          )}
+                        >
+                          {item}
+                        </button>
+                      ),
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                      disabled={currentPage === totalPages}
+                      className="rounded border border-zinc-700 px-2.5 py-1.5 text-zinc-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Suivant
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </>
           )}
         </section>
       </div>

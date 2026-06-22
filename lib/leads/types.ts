@@ -15,6 +15,9 @@ export type LeadsFilters = {
 export type LeadsApiResponse = {
   leads: ClickUpLead[];
   total: number;
+  page: number;
+  pageSize: number;
+  totalPages: number;
   filters?: LeadsFilters;
 };
 
