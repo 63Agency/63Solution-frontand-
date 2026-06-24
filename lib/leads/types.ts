@@ -1,3 +1,5 @@
+import { extractPhoneFromLeadText } from "./phone-extract";
+
 export type ClickUpLead = {
   id: string;
   name: string;
@@ -22,12 +24,18 @@ export type LeadsApiResponse = {
 };
 
 export function mapClickUpLeadRow(row: Record<string, unknown>): ClickUpLead {
+  const name = String(row.name ?? row.full_name ?? row.lead_name ?? "").trim();
   const phoneRaw = row.phone ?? row.phone_number ?? row.telephone ?? null;
+  let phone = phoneRaw == null || phoneRaw === "" ? null : String(phoneRaw).trim();
+
+  if (!phone && name) {
+    phone = extractPhoneFromLeadText(name);
+  }
 
   return {
     id: String(row.id ?? ""),
-    name: String(row.name ?? row.full_name ?? row.lead_name ?? "").trim(),
-    phone: phoneRaw == null || phoneRaw === "" ? null : String(phoneRaw),
+    name,
+    phone,
     status: String(row.status ?? "unknown").trim() || "unknown",
     list_name: String(row.list_name ?? row.listName ?? "").trim(),
     created_at: String(row.created_at ?? row.createdAt ?? ""),

@@ -59,7 +59,7 @@ export async function fetchLeads({
   return (await res.json()) as LeadsApiResponse;
 }
 
-/** Charge tous les leads avec téléphone (pagination automatique). */
+/** Charge tous les leads avec téléphone via GET /api/leads (pagination auto, filtre côté client). */
 export async function fetchLeadsForImport({
   listName = null,
   status = null,
@@ -69,10 +69,10 @@ export async function fetchLeadsForImport({
   filters: LeadsApiResponse["filters"];
 }> {
   const statuses = status?.trim() ? [status.trim()] : [];
+
   const first = await fetchLeads({
     listName,
     statuses,
-    hasPhone: true,
     page: 1,
     pageSize: LEADS_IMPORT_PAGE_SIZE,
     signal,
@@ -85,7 +85,6 @@ export async function fetchLeadsForImport({
     const next = await fetchLeads({
       listName,
       statuses,
-      hasPhone: true,
       page,
       pageSize: LEADS_IMPORT_PAGE_SIZE,
       signal,

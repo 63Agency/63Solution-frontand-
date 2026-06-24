@@ -67,7 +67,9 @@ export async function GET(request: NextRequest) {
     }
 
     if (hasPhone) {
-      query = query.not("phone", "is", null).neq("phone", "");
+      query = query.or(
+        "phone.neq.,name.ilike.%📞%,name.ilike.%+212%,name.ilike.%+32%,name.ilike.%06%,name.ilike.%07%",
+      );
     }
 
     const { data, error, count } = await query;
@@ -76,7 +78,11 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    const leads = (data ?? []).map((row) => mapClickUpLeadRow(row as Record<string, unknown>));
+    let leads = (data ?? []).map((row) => mapClickUpLeadRow(row as Record<string, unknown>));
+
+    if (hasPhone) {
+      leads = leads.filter((lead) => lead.phone?.trim());
+    }
 
     const total = count ?? leads.length;
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
