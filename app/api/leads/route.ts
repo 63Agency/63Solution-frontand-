@@ -4,6 +4,19 @@ import { mapClickUpLeadRow } from "@/lib/leads/types";
 
 const DEFAULT_PAGE_SIZE = 15;
 const MAX_PAGE_SIZE = 100;
+const MAX_IMPORT_PAGE_SIZE = 500;
+
+function parseHasPhone(raw: string | null): boolean {
+  return raw === "1" || raw === "true";
+}
+
+function parsePageSize(raw: string | null, hasPhone: boolean): number {
+  const defaultSize = hasPhone ? MAX_IMPORT_PAGE_SIZE : DEFAULT_PAGE_SIZE;
+  const maxSize = hasPhone ? MAX_IMPORT_PAGE_SIZE : MAX_PAGE_SIZE;
+  const value = Number.parseInt(raw ?? String(defaultSize), 10);
+  if (!Number.isFinite(value) || value < 1) return defaultSize;
+  return Math.min(value, maxSize);
+}
 
 function parseStatuses(raw: string | null): string[] {
   if (!raw?.trim()) return [];
@@ -24,19 +37,14 @@ function parsePage(raw: string | null): number {
   return Number.isFinite(value) && value >= 1 ? value : 1;
 }
 
-function parsePageSize(raw: string | null): number {
-  const value = Number.parseInt(raw ?? String(DEFAULT_PAGE_SIZE), 10);
-  if (!Number.isFinite(value) || value < 1) return DEFAULT_PAGE_SIZE;
-  return Math.min(value, MAX_PAGE_SIZE);
-}
-
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
     const listName = searchParams.get("list_name")?.trim() || null;
     const statuses = parseStatuses(searchParams.get("status"));
+    const hasPhone = parseHasPhone(searchParams.get("has_phone"));
     const page = parsePage(searchParams.get("page"));
-    const pageSize = parsePageSize(searchParams.get("page_size"));
+    const pageSize = parsePageSize(searchParams.get("page_size"), hasPhone);
     const from = (page - 1) * pageSize;
     const to = from + pageSize - 1;
 
@@ -56,6 +64,10 @@ export async function GET(request: NextRequest) {
       query = query.eq("status", statuses[0]);
     } else if (statuses.length > 1) {
       query = query.in("status", statuses);
+    }
+
+    if (hasPhone) {
+      query = query.not("phone", "is", null).neq("phone", "");
     }
 
     const { data, error, count } = await query;

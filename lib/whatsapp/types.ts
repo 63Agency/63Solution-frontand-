@@ -53,6 +53,10 @@ export type BulkWhatsAppSendPayload = {
   text: string;
 };
 
+export type BulkWhatsAppSendOptions = {
+  onProgress?: (completed: number, total: number) => void;
+};
+
 export type BulkWhatsAppSendResultItem = {
   phoneNumber: string;
   success: boolean;

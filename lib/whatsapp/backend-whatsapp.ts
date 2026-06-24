@@ -1,5 +1,6 @@
 import { getApiBaseUrl, getStoredAccessToken } from "../auth/backend-login";
 import type {
+  BulkWhatsAppSendOptions,
   BulkWhatsAppSendPayload,
   BulkWhatsAppSendResult,
   BulkWhatsAppSendResultItem,
@@ -352,6 +353,7 @@ function parseBulkResult(raw: unknown): BulkWhatsAppSendResult | null {
  */
 export async function sendBulkWhatsAppMessages(
   payload: BulkWhatsAppSendPayload,
+  options: BulkWhatsAppSendOptions = {},
 ): Promise<BulkWhatsAppSendResult> {
   const base = getApiBaseUrl();
   if (!base) throw new Error("NEXT_PUBLIC_API_URL manquante.");
@@ -365,6 +367,11 @@ export async function sendBulkWhatsAppMessages(
   if (phoneNumbers.length === 0) {
     throw new Error("Ajoutez au moins un numéro valide.");
   }
+
+  const total = phoneNumbers.length;
+  const reportProgress = (completed: number) => {
+    options.onProgress?.(completed, total);
+  };
 
   const body = JSON.stringify({ phoneNumbers, text });
 
@@ -380,13 +387,17 @@ export async function sendBulkWhatsAppMessages(
       return parseApiError(res, `POST ${path}`);
     }
     const parsed = parseBulkResult(await res.json().catch(() => null));
-    if (parsed) return parsed;
+    if (parsed) {
+      reportProgress(total);
+      return parsed;
+    }
   }
 
   const conversations = await fetchWhatsAppConversations();
   const results: BulkWhatsAppSendResultItem[] = [];
 
-  for (const phone of phoneNumbers) {
+  for (let index = 0; index < phoneNumbers.length; index += 1) {
+    const phone = phoneNumbers[index];
     const conv = findConversationByPhone(conversations, phone);
     if (!conv) {
       results.push({
@@ -395,6 +406,7 @@ export async function sendBulkWhatsAppMessages(
         error:
           "Aucune conversation pour ce numéro. Le contact doit avoir déjà écrit sur WhatsApp.",
       });
+      reportProgress(index + 1);
       continue;
     }
     try {
@@ -413,6 +425,7 @@ export async function sendBulkWhatsAppMessages(
         error: e instanceof Error ? e.message : "Échec envoi",
       });
     }
+    reportProgress(index + 1);
   }
 
   const sent = results.filter((r) => r.success).length;
