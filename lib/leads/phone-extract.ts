@@ -35,3 +35,19 @@ function normalizeLeadPhoneDigits(digits: string): string {
   }
   return value.length >= 9 ? value : digits;
 }
+
+/** Nom affichable sans téléphone ni emojis (ex. ClickUp task name). */
+export function cleanLeadDisplayName(raw: string): string {
+  if (!raw?.trim()) return "Sans nom";
+
+  let name = raw.trim();
+
+  name = name.replace(/\s*📞[\s\S]*$/u, "");
+  name = name.replace(/\s*[-–—]\s*\+?\d[\d\s().-]{8,}\s*$/u, "");
+  name = name.replace(/\s*\+\d[\d\s().-]{8,}(?:[-\s].*)?$/u, "");
+  name = name.replace(/\s*[-–—_]\s*\d{10,12}(?:[^0-9]|$).*/u, "");
+  name = name.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "");
+  name = name.replace(/[\s\-–—_|]+$/g, "").trim();
+
+  return name || "Sans nom";
+}

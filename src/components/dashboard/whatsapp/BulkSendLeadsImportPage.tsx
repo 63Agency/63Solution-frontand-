@@ -1,7 +1,10 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ArrowLeft,
   CheckSquare,
   ChevronDown,
   Filter,
@@ -9,19 +12,18 @@ import {
   Search,
   Square,
   UserPlus,
-  X,
 } from "lucide-react";
+import { toast } from "sonner";
 import { fetchLeadsForImport } from "@/lib/leads/api-leads";
+import { cleanLeadDisplayName } from "@/lib/leads/phone-extract";
 import type { ClickUpLead } from "@/lib/leads/types";
+import {
+  BULK_SEND_PATH,
+  stashBulkSendImport,
+} from "@/lib/whatsapp/bulk-send-storage";
 import { LeadStatusBadge } from "@/src/components/dashboard/leads/LeadStatusBadge";
 import { cn } from "@/src/lib/utils";
 import { formatWhatsAppPhone } from "./whatsapp-utils";
-
-type Props = {
-  open: boolean;
-  onClose: () => void;
-  onImport: (phones: string[]) => void;
-};
 
 type MultiSelectFilterProps = {
   label: string;
@@ -62,7 +64,7 @@ function MultiSelectFilter({
       ? placeholder
       : selected.size === 1
         ? [...selected][0]
-        : `${selected.size} sélectionné${selected.size > 1 ? "s" : ""}`;
+        : `${selected.size} sélectionnés`;
 
   return (
     <div ref={ref} className="relative">
@@ -132,7 +134,8 @@ function leadMatchesSearch(lead: ClickUpLead, query: string): boolean {
   return false;
 }
 
-export function BulkSendLeadsImportModal({ open, onClose, onImport }: Props) {
+export function BulkSendLeadsImportPage() {
+  const router = useRouter();
   const [allLeads, setAllLeads] = useState<ClickUpLead[]>([]);
   const [listNames, setListNames] = useState<string[]>([]);
   const [statusOptions, setStatusOptions] = useState<string[]>([]);
@@ -140,7 +143,7 @@ export function BulkSendLeadsImportModal({ open, onClose, onImport }: Props) {
   const [selectedLists, setSelectedLists] = useState<Set<string>>(new Set());
   const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const loadLeads = useCallback(async () => {
@@ -161,25 +164,8 @@ export function BulkSendLeadsImportModal({ open, onClose, onImport }: Props) {
   }, []);
 
   useEffect(() => {
-    if (!open) return;
-
-    setSearch("");
-    setSelectedLists(new Set());
-    setSelectedStatuses(new Set());
-    setSelectedIds(new Set());
     void loadLeads();
-  }, [open, loadLeads]);
-
-  useEffect(() => {
-    if (!open) return;
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
-    };
-
-    document.addEventListener("keydown", handleKeyDown);
-    return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [open, onClose]);
+  }, [loadLeads]);
 
   const filteredLeads = useMemo(() => {
     return allLeads.filter((lead) => {
@@ -253,50 +239,46 @@ export function BulkSendLeadsImportModal({ open, onClose, onImport }: Props) {
 
   const handleImport = () => {
     if (selectedPhones.length === 0) return;
-    onImport(selectedPhones);
-    onClose();
+    stashBulkSendImport(selectedPhones);
+    toast.success(
+      `${selectedPhones.length} numéro${selectedPhones.length > 1 ? "s" : ""} ajouté${selectedPhones.length > 1 ? "s" : ""} à l'envoi multiple.`,
+    );
+    router.push(BULK_SEND_PATH);
   };
 
-  if (!open) return null;
-
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
-      role="presentation"
-      onClick={onClose}
-    >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="bulk-import-leads-title"
-        className="flex max-h-[min(92vh,880px)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border border-zinc-700/80 bg-zinc-950 shadow-2xl shadow-black/50"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="flex items-start justify-between gap-4 border-b border-zinc-800 px-6 py-5">
-          <div className="flex items-start gap-3">
-            <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-sky-600/15 ring-1 ring-sky-500/25">
-              <UserPlus className="size-4 text-sky-400" aria-hidden />
-            </div>
-            <div>
-              <h3 id="bulk-import-leads-title" className="text-lg font-semibold text-white">
-                Importer depuis les Leads
-              </h3>
-              <p className="mt-1 text-sm text-zinc-500">
-                Recherchez, filtrez et sélectionnez les contacts ClickUp avec téléphone.
-              </p>
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-6xl space-y-5 px-6 py-6 md:px-8 md:py-8">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="flex items-start gap-4">
+            <Link
+              href={BULK_SEND_PATH}
+              className="mt-1 inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
+            >
+              <ArrowLeft className="size-4" aria-hidden />
+              Retour
+            </Link>
+            <div className="flex items-start gap-3">
+              <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-sky-600/15 ring-1 ring-sky-500/25">
+                <UserPlus className="size-5 text-sky-400" aria-hidden />
+              </div>
+              <div>
+                <p className="font-mono text-[11px] uppercase tracking-widest text-zinc-500">
+                  Envoi multiple
+                </p>
+                <h2 className="mt-1 text-2xl font-semibold text-white">Importer depuis les Leads</h2>
+                <p className="mt-1 text-sm text-zinc-500">
+                  Sélectionnez les contacts ClickUp à ajouter à votre envoi WhatsApp.
+                </p>
+              </div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg p-2 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
-            aria-label="Fermer"
-          >
-            <X className="size-5" aria-hidden />
-          </button>
+          <p className="rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-3 text-sm text-zinc-400">
+            <span className="font-semibold text-white">{allLeads.length}</span> leads avec téléphone
+          </p>
         </div>
 
-        <div className="space-y-4 border-b border-zinc-800 px-6 py-4">
+        <div className="space-y-4 rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
           <div className="relative">
             <Search
               className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500"
@@ -307,11 +289,11 @@ export function BulkSendLeadsImportModal({ open, onClose, onImport }: Props) {
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Rechercher par nom ou numéro…"
-              className="w-full rounded-xl border border-zinc-700 bg-zinc-900 py-2.5 pl-10 pr-4 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-sky-600/80 focus:outline-none focus:ring-2 focus:ring-sky-600/20"
+              className="w-full rounded-xl border border-zinc-700 bg-zinc-950 py-2.5 pl-10 pr-4 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-sky-600/80 focus:outline-none focus:ring-2 focus:ring-sky-600/20"
             />
           </div>
 
-          <div className="rounded-xl border border-zinc-800 bg-zinc-900/40 p-4">
+          <div>
             <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <Filter className="size-4 text-zinc-500" aria-hidden />
@@ -334,7 +316,6 @@ export function BulkSendLeadsImportModal({ open, onClose, onImport }: Props) {
                 </button>
               ) : null}
             </div>
-
             <div className="grid gap-4 sm:grid-cols-2">
               <MultiSelectFilter
                 label="Liste"
@@ -354,7 +335,7 @@ export function BulkSendLeadsImportModal({ open, onClose, onImport }: Props) {
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800/80 bg-zinc-900/30 px-6 py-3">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-zinc-800 bg-zinc-900/30 px-4 py-3">
           <p className="text-sm text-zinc-300">
             <span className="font-semibold text-white">{selectedInFilterCount}</span> lead
             {selectedInFilterCount !== 1 ? "s" : ""} sélectionné
@@ -369,7 +350,7 @@ export function BulkSendLeadsImportModal({ open, onClose, onImport }: Props) {
               className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
             >
               <CheckSquare className="size-3.5" aria-hidden />
-              Sélectionner tout le filtre actuel
+              Tout le filtre
             </button>
             <button
               type="button"
@@ -378,7 +359,7 @@ export function BulkSendLeadsImportModal({ open, onClose, onImport }: Props) {
               className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
             >
               <CheckSquare className="size-3.5" aria-hidden />
-              Sélectionner tout
+              Tout sélectionner
             </button>
             <button
               type="button"
@@ -387,77 +368,103 @@ export function BulkSendLeadsImportModal({ open, onClose, onImport }: Props) {
               className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
             >
               <Square className="size-3.5" aria-hidden />
-              Désélectionner tout
+              Désélectionner
             </button>
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+        <section className="overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-950/50">
           {error ? (
-            <p className="py-8 text-center text-sm text-red-400">{error}</p>
+            <p className="py-16 text-center text-sm text-red-400">{error}</p>
           ) : loading ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-16 text-zinc-500">
+            <div className="flex flex-col items-center justify-center gap-3 py-24 text-zinc-500">
               <Loader2 className="size-8 animate-spin text-sky-500" aria-hidden />
               <p className="text-sm">Chargement des leads ClickUp…</p>
             </div>
           ) : filteredLeads.length === 0 ? (
-            <p className="py-12 text-center text-sm text-zinc-500">
+            <p className="py-16 text-center text-sm text-zinc-500">
               {allLeads.length === 0
                 ? "Aucun lead avec numéro disponible."
                 : "Aucun lead ne correspond à votre recherche ou vos filtres."}
             </p>
           ) : (
-            <div className="overflow-x-auto rounded-xl border border-zinc-800">
-              <table className="w-full min-w-[720px] border-collapse text-sm">
-                <thead>
-                  <tr className="border-b border-zinc-800 bg-zinc-900/60 text-left text-[10px] uppercase tracking-widest text-zinc-500">
-                    <th className="w-12 px-4 py-3 font-medium">
+            <div className="max-h-[min(560px,calc(100vh-22rem))] overflow-y-auto">
+              <table className="w-full table-fixed border-collapse text-sm">
+                <colgroup>
+                  <col style={{ width: 40 }} />
+                  <col style={{ width: "30%" }} />
+                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "20%" }} />
+                  <col style={{ width: "20%" }} />
+                </colgroup>
+                <thead className="sticky top-0 z-10 bg-zinc-900">
+                  <tr className="h-11 border-b border-zinc-800 text-left text-[10px] font-semibold uppercase tracking-widest text-zinc-500">
+                    <th className="px-2 text-center align-middle">
                       <input
                         type="checkbox"
                         checked={allFilteredSelected}
                         onChange={toggleAllFiltered}
                         aria-label="Sélectionner tout le filtre actuel"
-                        className="size-4 rounded border-zinc-600 bg-zinc-900 text-sky-500"
+                        className="size-4 rounded border-zinc-600 bg-zinc-950 text-sky-500"
                       />
                     </th>
-                    <th className="px-4 py-3 font-medium">Nom du client</th>
-                    <th className="px-4 py-3 font-medium">Numéro de téléphone</th>
-                    <th className="px-4 py-3 font-medium">Statut</th>
-                    <th className="px-4 py-3 font-medium">Liste</th>
+                    <th className="px-3 align-middle">Nom</th>
+                    <th className="px-3 align-middle">Téléphone</th>
+                    <th className="px-3 align-middle">Statut</th>
+                    <th className="px-3 align-middle">Liste</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-zinc-800/80">
-                  {filteredLeads.map((lead) => {
+                <tbody className="divide-y divide-zinc-800/60">
+                  {filteredLeads.map((lead, index) => {
                     const checked = selectedIds.has(lead.id);
+                    const displayName = cleanLeadDisplayName(lead.name);
+
                     return (
                       <tr
                         key={lead.id}
                         className={cn(
-                          "cursor-pointer transition hover:bg-zinc-900/50",
-                          checked && "bg-sky-950/15",
+                          "h-11 cursor-pointer transition-colors duration-150",
+                          index % 2 === 0 ? "bg-zinc-950/60" : "bg-zinc-900/40",
+                          "hover:bg-sky-950/40",
+                          checked && "bg-sky-950/50",
                         )}
                         onClick={() => toggleLead(lead.id)}
                       >
-                        <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <td
+                          className="px-2 text-center align-middle"
+                          onClick={(e) => e.stopPropagation()}
+                        >
                           <input
                             type="checkbox"
                             checked={checked}
                             onChange={() => toggleLead(lead.id)}
-                            aria-label={`Sélectionner ${lead.name || lead.phone}`}
-                            className="size-4 rounded border-zinc-600 bg-zinc-900 text-sky-500"
+                            aria-label={`Sélectionner ${displayName}`}
+                            className="size-4 rounded border-zinc-600 bg-zinc-950 text-sky-500"
                           />
                         </td>
-                        <td className="px-4 py-3 font-medium text-zinc-100">
-                          {lead.name || "Sans nom"}
+                        <td className="px-3 align-middle">
+                          <span
+                            className="block truncate text-[13px] font-medium text-zinc-100"
+                            title={displayName}
+                          >
+                            {displayName}
+                          </span>
                         </td>
-                        <td className="px-4 py-3 font-mono text-zinc-400">
-                          {formatWhatsAppPhone(lead.phone ?? "")}
+                        <td className="px-3 align-middle">
+                          <span className="block truncate font-mono text-[12px] text-zinc-400">
+                            {formatWhatsAppPhone(lead.phone ?? "")}
+                          </span>
                         </td>
-                        <td className="px-4 py-3">
+                        <td className="px-3 align-middle">
                           <LeadStatusBadge status={lead.status} />
                         </td>
-                        <td className="max-w-[12rem] truncate px-4 py-3 text-zinc-400">
-                          {lead.list_name || "—"}
+                        <td className="px-3 align-middle">
+                          <span
+                            className="block truncate text-[12px] text-zinc-500"
+                            title={lead.list_name || undefined}
+                          >
+                            {lead.list_name || "—"}
+                          </span>
                         </td>
                       </tr>
                     );
@@ -466,30 +473,29 @@ export function BulkSendLeadsImportModal({ open, onClose, onImport }: Props) {
               </table>
             </div>
           )}
-        </div>
+        </section>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 bg-zinc-900/50 px-6 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/50 px-5 py-4">
           <p className="text-sm text-zinc-400">
             <span className="font-semibold text-white">{selectedPhones.length}</span> numéro
-            {selectedPhones.length !== 1 ? "s" : ""} prêt
-            {selectedPhones.length !== 1 ? "s" : ""} à importer
+            {selectedPhones.length !== 1 ? "s" : ""} sélectionné
+            {selectedPhones.length !== 1 ? "s" : ""}
           </p>
           <div className="flex items-center gap-2">
-            <button
-              type="button"
-              onClick={onClose}
+            <Link
+              href={BULK_SEND_PATH}
               className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
             >
               Annuler
-            </button>
+            </Link>
             <button
               type="button"
               onClick={handleImport}
               disabled={selectedPhones.length === 0}
               className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Importer {selectedPhones.length} numéro{selectedPhones.length !== 1 ? "s" : ""}{" "}
-              sélectionné{selectedPhones.length !== 1 ? "s" : ""}
+              Importer {selectedPhones.length} numéro{selectedPhones.length !== 1 ? "s" : ""} vers
+              l&apos;envoi multiple
             </button>
           </div>
         </div>

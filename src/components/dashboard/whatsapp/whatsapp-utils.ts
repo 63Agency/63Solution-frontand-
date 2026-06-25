@@ -29,7 +29,8 @@ export function parsePhoneNumbersInput(raw: string): string[] {
 export function formatWhatsAppPhone(value: string): string {
   const digits = value.replace(/\D/g, "");
   if (digits.startsWith("212") && digits.length >= 12) {
-    return `+${digits.slice(0, 3)} ${digits.slice(3, 4)} ${digits.slice(4, 7)} ${digits.slice(7, 9)} ${digits.slice(9)}`;
+    const rest = digits.slice(3);
+    return `+212 ${rest[0]} ${rest.slice(1, 3)} ${rest.slice(3, 5)} ${rest.slice(5, 7)} ${rest.slice(7, 9)}`;
   }
   if (digits.length >= 10) return `+${digits}`;
   return value || "—";

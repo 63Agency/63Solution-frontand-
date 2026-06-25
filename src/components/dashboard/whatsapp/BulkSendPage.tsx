@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import Link from "next/link";
+import { useEffect, useMemo, useState } from "react";
 import {
   AlertCircle,
   CheckCircle2,
@@ -13,10 +14,15 @@ import {
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import {
+  BULK_SEND_IMPORT_PATH,
+  consumeBulkSendImport,
+  loadBulkSendDraft,
+  saveBulkSendDraft,
+} from "@/lib/whatsapp/bulk-send-storage";
 import { sendBulkWhatsAppMessages } from "@/lib/whatsapp/backend-whatsapp";
 import type { BulkWhatsAppSendResultItem } from "@/lib/whatsapp/types";
 import { cn } from "@/src/lib/utils";
-import { BulkSendLeadsImportModal } from "./BulkSendLeadsImportModal";
 import {
   formatWhatsAppPhone,
   normalizeWhatsAppPhoneDigits,
@@ -66,8 +72,35 @@ export function BulkSendPage() {
   const [sending, setSending] = useState(false);
   const [sendProgress, setSendProgress] = useState({ current: 0, total: 0 });
   const [results, setResults] = useState<BulkWhatsAppSendResultItem[] | null>(null);
-  const [importModalOpen, setImportModalOpen] = useState(false);
   const [leadsImportCount, setLeadsImportCount] = useState(0);
+  const [draftReady, setDraftReady] = useState(false);
+
+  useEffect(() => {
+    const draft = loadBulkSendDraft();
+    let phones = draft?.phonesRaw ?? "";
+    let messageText = draft?.message ?? "";
+    let importCount = draft?.leadsImportCount ?? 0;
+
+    const imported = consumeBulkSendImport();
+    if (imported && imported.length > 0) {
+      const before = parsePhoneNumbersInput(phones).length;
+      phones = mergePhonesIntoTextarea(phones, imported);
+      const added = parsePhoneNumbersInput(phones).length - before;
+      if (added > 0) {
+        importCount += added;
+        toast.success(
+          `${added} numéro${added > 1 ? "s" : ""} importé${added > 1 ? "s" : ""} depuis les Leads.`,
+        );
+      } else {
+        toast.info("Ces numéros sont déjà dans la liste.");
+      }
+    }
+
+    setPhonesRaw(phones);
+    setMessage(messageText);
+    setLeadsImportCount(importCount);
+    setDraftReady(true);
+  }, []);
 
   const parsedPhones = useMemo(() => parsePhoneNumbersInput(phonesRaw), [phonesRaw]);
   const progressPercent =
@@ -82,22 +115,12 @@ export function BulkSendPage() {
     return { sent, failed, total: results.length };
   }, [results]);
 
-  const handleImportFromLeads = (phones: string[]) => {
-    const before = parsePhoneNumbersInput(phonesRaw).length;
-    const merged = mergePhonesIntoTextarea(phonesRaw, phones);
-    const after = parsePhoneNumbersInput(merged).length;
-    const added = after - before;
-
-    setPhonesRaw(merged);
-    setLeadsImportCount((count) => count + added);
-
-    if (added > 0) {
-      toast.success(
-        `${added} numéro${added > 1 ? "s" : ""} importé${added > 1 ? "s" : ""} depuis les Leads.`,
-      );
-    } else {
-      toast.info("Ces numéros sont déjà dans la liste.");
-    }
+  const handleImportFromLeads = () => {
+    saveBulkSendDraft({
+      phonesRaw,
+      message,
+      leadsImportCount,
+    });
   };
 
   const handleSend = async () => {
@@ -143,8 +166,12 @@ export function BulkSendPage() {
   };
 
   return (
-    <>
-      <div className="min-h-0 flex-1 overflow-y-auto">
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      {!draftReady ? (
+        <div className="flex items-center justify-center py-24">
+          <Loader2 className="size-8 animate-spin text-emerald-500" aria-hidden />
+        </div>
+      ) : (
         <div className="mx-auto max-w-5xl space-y-6 px-6 py-8 md:px-8">
           <div className="rounded-2xl border border-zinc-800 bg-gradient-to-br from-zinc-900/90 to-zinc-950 p-6 shadow-xl shadow-black/20">
             <div className="flex flex-wrap items-start justify-between gap-4">
@@ -194,14 +221,14 @@ export function BulkSendPage() {
                   <Smartphone className="size-4 text-emerald-400" aria-hidden />
                   <h3 className="text-sm font-semibold text-zinc-100">Destinataires</h3>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => setImportModalOpen(true)}
+                <Link
+                  href={BULK_SEND_IMPORT_PATH}
+                  onClick={handleImportFromLeads}
                   className="inline-flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs font-medium text-sky-200 transition hover:bg-sky-500/20"
                 >
                   <Download className="size-3.5" aria-hidden />
                   Importer depuis les Leads
-                </button>
+                </Link>
               </div>
 
               <label htmlFor="bulk-phones" className="sr-only">
@@ -355,13 +382,7 @@ export function BulkSendPage() {
             </p>
           </div>
         </div>
-      </div>
-
-      <BulkSendLeadsImportModal
-        open={importModalOpen}
-        onClose={() => setImportModalOpen(false)}
-        onImport={handleImportFromLeads}
-      />
-    </>
+      )}
+    </div>
   );
 }

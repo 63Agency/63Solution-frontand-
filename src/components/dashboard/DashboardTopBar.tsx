@@ -10,6 +10,9 @@ import { fullName, profileInitials } from "./settings/settings-profile-utils";
 
 function getPageTitle(pathname: string): string {
   if (pathname.startsWith("/dashboard/parametres")) return "Profil";
+  if (pathname.startsWith("/dashboard/conversations/envoi-multiple/import-leads")) {
+    return "Importer des Leads";
+  }
   if (pathname.startsWith("/dashboard/conversations/envoi-multiple")) {
     return "Envoi multiple";
   }
