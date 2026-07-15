@@ -188,13 +188,18 @@ export function BulkSendLeadsImportPage() {
     [filteredLeads, selectedIds],
   );
 
-  const selectedPhones = useMemo(
+  const selectedContacts = useMemo(
     () =>
       allLeads
         .filter((lead) => selectedIds.has(lead.id) && lead.phone?.trim())
-        .map((lead) => lead.phone!.trim()),
+        .map((lead) => ({
+          phone: lead.phone!.trim(),
+          name: cleanLeadDisplayName(lead.name),
+        })),
     [allLeads, selectedIds],
   );
+
+  const selectedPhonesCount = selectedContacts.length;
 
   const allFilteredSelected =
     filteredLeads.length > 0 && filteredLeads.every((lead) => selectedIds.has(lead.id));
@@ -238,11 +243,15 @@ export function BulkSendLeadsImportPage() {
   };
 
   const handleImport = () => {
-    if (selectedPhones.length === 0) return;
-    stashBulkSendImport(selectedPhones);
-    toast.success(
-      `${selectedPhones.length} numéro${selectedPhones.length > 1 ? "s" : ""} ajouté${selectedPhones.length > 1 ? "s" : ""} à l'envoi multiple.`,
-    );
+    if (selectedContacts.length === 0) return;
+    const added = stashBulkSendImport(selectedContacts);
+    if (added > 0) {
+      toast.success(
+        `${added} numéro${added > 1 ? "s" : ""} ajouté${added > 1 ? "s" : ""} à l'envoi multiple.`,
+      );
+    } else {
+      toast.info("Ces numéros sont déjà dans la liste.");
+    }
     router.push(BULK_SEND_PATH);
   };
 
@@ -477,9 +486,9 @@ export function BulkSendLeadsImportPage() {
 
         <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/50 px-5 py-4">
           <p className="text-sm text-zinc-400">
-            <span className="font-semibold text-white">{selectedPhones.length}</span> numéro
-            {selectedPhones.length !== 1 ? "s" : ""} sélectionné
-            {selectedPhones.length !== 1 ? "s" : ""}
+            <span className="font-semibold text-white">{selectedPhonesCount}</span> numéro
+            {selectedPhonesCount !== 1 ? "s" : ""} sélectionné
+            {selectedPhonesCount !== 1 ? "s" : ""}
           </p>
           <div className="flex items-center gap-2">
             <Link
@@ -491,10 +500,10 @@ export function BulkSendLeadsImportPage() {
             <button
               type="button"
               onClick={handleImport}
-              disabled={selectedPhones.length === 0}
+              disabled={selectedPhonesCount === 0}
               className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
-              Importer {selectedPhones.length} numéro{selectedPhones.length !== 1 ? "s" : ""} vers
+              Importer {selectedPhonesCount} numéro{selectedPhonesCount !== 1 ? "s" : ""} vers
               l&apos;envoi multiple
             </button>
           </div>

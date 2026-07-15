@@ -1,8 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, Filter, UserPlus } from "lucide-react";
+import { ChevronDown, Filter, Loader2, RefreshCw, UserPlus } from "lucide-react";
+import { toast } from "sonner";
+import { getStoredUser } from "@/lib/auth/backend-login";
+import { isFullAdminRole } from "@/lib/auth/roles";
 import { fetchLeads, LEADS_PER_PAGE } from "@/lib/leads/api-leads";
+import { syncClickUpLeads } from "@/lib/leads/backend-clickup";
 import type { ClickUpLead } from "@/lib/leads/types";
 import { cn } from "@/src/lib/utils";
 import { LeadStatusBadge } from "./LeadStatusBadge";
@@ -47,7 +51,14 @@ export function LeadsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusMenuOpen, setStatusMenuOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const statusMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const user = getStoredUser();
+    setIsAdmin(user ? isFullAdminRole(user.role) : false);
+  }, []);
 
   const loadLeads = useCallback(async () => {
     setLoading(true);
@@ -120,6 +131,24 @@ export function LeadsPage() {
     );
   };
 
+  const handleSync = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    try {
+      const result = await syncClickUpLeads();
+      toast.success(
+        result.synced === 1
+          ? "1 lead synchronisé depuis ClickUp."
+          : `${result.synced} leads synchronisés depuis ClickUp.`,
+      );
+      await loadLeads();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Synchronisation ClickUp impossible.");
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   return (
     <>
       <header className="flex shrink-0 flex-col gap-2 border-b border-zinc-800 px-6 py-5 md:px-8 md:py-6">
@@ -147,6 +176,22 @@ export function LeadsPage() {
             </div>
 
             <div className="flex flex-wrap items-center gap-3">
+              {isAdmin ? (
+                <button
+                  type="button"
+                  onClick={() => void handleSync()}
+                  disabled={syncing}
+                  className="inline-flex items-center gap-2 rounded-md border border-sky-500/40 bg-sky-600/15 px-3 py-2 text-sm text-sky-200 hover:bg-sky-600/25 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {syncing ? (
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                  ) : (
+                    <RefreshCw className="size-4" aria-hidden />
+                  )}
+                  {syncing ? "Synchronisation…" : "Sync ClickUp"}
+                </button>
+              ) : null}
+
               <div ref={statusMenuRef} className="relative">
                 <button
                   type="button"

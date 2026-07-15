@@ -48,9 +48,32 @@ export type WhatsAppMessagesPage = {
   nextCursor?: string | null;
 };
 
+export type WhatsAppTemplateComponentParameter = {
+  type: string;
+  text: string;
+};
+
+export type WhatsAppTemplateComponent = {
+  type: string;
+  parameters: WhatsAppTemplateComponentParameter[];
+};
+
+export type BulkWhatsAppRecipient = {
+  phoneNumber: string;
+  /** Remplace {{1}} dans le body du template pour ce destinataire. */
+  variable1?: string;
+};
+
 export type BulkWhatsAppSendPayload = {
   phoneNumbers: string[];
-  text: string;
+  text?: string;
+  templateName?: string;
+  templateLanguage?: string;
+  components?: WhatsAppTemplateComponent[];
+  /** Valeur partagée {{1}} pour tous les destinataires (fallback). */
+  variable1?: string;
+  /** Destinataires avec variable1 individuelle (prioritaire pour les leads). */
+  recipients?: BulkWhatsAppRecipient[];
 };
 
 export type BulkWhatsAppSendOptions = {

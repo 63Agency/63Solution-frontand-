@@ -350,6 +350,7 @@ function parseBulkResult(raw: unknown): BulkWhatsAppSendResult | null {
 /**
  * Envoi à plusieurs numéros.
  * Essaie POST /whatsapp/broadcast, sinon envoi conversation par conversation.
+ * En mode template, `recipients[].variable1` (ou `variable1`) remplace {{1}}.
  */
 export async function sendBulkWhatsAppMessages(
   payload: BulkWhatsAppSendPayload,
@@ -358,46 +359,142 @@ export async function sendBulkWhatsAppMessages(
   const base = getApiBaseUrl();
   if (!base) throw new Error("NEXT_PUBLIC_API_URL manquante.");
 
-  const text = payload.text.trim();
-  if (!text) throw new Error("Le message ne peut pas être vide.");
+  const isTemplateSend = Boolean(payload.templateName?.trim());
+  const text = payload.text?.trim() ?? "";
 
-  const phoneNumbers = payload.phoneNumbers
+  if (!isTemplateSend && !text) {
+    throw new Error("Le message ne peut pas être vide.");
+  }
+  if (isTemplateSend && !payload.templateName?.trim()) {
+    throw new Error("Sélectionnez un template WhatsApp.");
+  }
+
+  const phoneNumbers = (
+    payload.recipients && payload.recipients.length > 0
+      ? payload.recipients.map((r) => r.phoneNumber)
+      : payload.phoneNumbers
+  )
     .map((p) => normalizeDigits(p))
     .filter((d) => d.length >= 9);
-  if (phoneNumbers.length === 0) {
+
+  const uniquePhones: string[] = [];
+  const seen = new Set<string>();
+  for (const phone of phoneNumbers) {
+    if (seen.has(phone)) continue;
+    seen.add(phone);
+    uniquePhones.push(phone);
+  }
+
+  if (uniquePhones.length === 0) {
     throw new Error("Ajoutez au moins un numéro valide.");
   }
 
-  const total = phoneNumbers.length;
+  const total = uniquePhones.length;
   const reportProgress = (completed: number) => {
     options.onProgress?.(completed, total);
   };
 
-  const body = JSON.stringify({ phoneNumbers, text });
+  const variable1ByPhone = new Map<string, string>();
+  for (const recipient of payload.recipients ?? []) {
+    const phone = normalizeDigits(recipient.phoneNumber);
+    const name = recipient.variable1?.trim();
+    if (phone.length >= 9 && name) {
+      variable1ByPhone.set(phone, name);
+    }
+  }
 
-  for (const path of ["/whatsapp/broadcast", "/whatsapp/messages/bulk"]) {
-    const res = await fetch(`${base}${path}`, {
-      method: "POST",
-      headers: buildAuthHeaders(),
-      credentials: "include",
-      body,
-    });
-    if (res.status === 404) continue;
-    if (!res.ok) {
-      return parseApiError(res, `POST ${path}`);
+  const sharedVariable1 =
+    payload.variable1?.trim() ||
+    payload.components
+      ?.find((c) => String(c.type ?? "").toLowerCase() === "body")
+      ?.parameters?.find((p) => typeof p.text === "string" && p.text.trim())
+      ?.text?.trim() ||
+    "";
+
+  const resolveVariable1 = (phone: string): string =>
+    variable1ByPhone.get(phone) || sharedVariable1;
+
+  async function postBroadcast(body: Record<string, unknown>): Promise<BulkWhatsAppSendResult | null> {
+    for (const path of ["/whatsapp/broadcast", "/whatsapp/messages/bulk"]) {
+      const res = await fetch(`${base}${path}`, {
+        method: "POST",
+        headers: buildAuthHeaders(),
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      if (res.status === 404) continue;
+      if (!res.ok) {
+        return parseApiError(res, `POST ${path}`);
+      }
+      const parsed = parseBulkResult(await res.json().catch(() => null));
+      if (parsed) return parsed;
     }
-    const parsed = parseBulkResult(await res.json().catch(() => null));
-    if (parsed) {
-      reportProgress(total);
-      return parsed;
+    return null;
+  }
+
+  if (isTemplateSend) {
+    const templateName = payload.templateName!.trim();
+    const templateLanguage = payload.templateLanguage ?? "fr";
+    const results: BulkWhatsAppSendResultItem[] = [];
+
+    // Le backend applique un seul variable1 par requête → un envoi par destinataire
+    // quand les noms diffèrent (cas normal après import Leads).
+    for (let index = 0; index < uniquePhones.length; index += 1) {
+      const phone = uniquePhones[index];
+      const variable1 = resolveVariable1(phone);
+      const components =
+        variable1.length > 0
+          ? [
+              {
+                type: "body",
+                parameters: [{ type: "text", text: variable1 }],
+              },
+            ]
+          : payload.components;
+
+      try {
+        const parsed = await postBroadcast({
+          phoneNumbers: [phone],
+          templateName,
+          templateLanguage,
+          ...(variable1 ? { variable1 } : {}),
+          ...(components ? { components } : {}),
+        });
+        if (!parsed) {
+          throw new Error(
+            "L'envoi par template nécessite POST /whatsapp/broadcast côté backend.",
+          );
+        }
+        results.push(...parsed.results);
+      } catch (e) {
+        if (e instanceof Error && e.message.includes("POST /whatsapp")) {
+          throw e;
+        }
+        results.push({
+          phoneNumber: phone,
+          success: false,
+          error: e instanceof Error ? e.message : "Échec envoi",
+        });
+      }
+      reportProgress(index + 1);
     }
+
+    const sent = results.filter((r) => r.success).length;
+    return { sent, failed: results.length - sent, results };
+  }
+
+  const body = { phoneNumbers: uniquePhones, text };
+  const broadcastResult = await postBroadcast(body);
+  if (broadcastResult) {
+    reportProgress(total);
+    return broadcastResult;
   }
 
   const conversations = await fetchWhatsAppConversations();
   const results: BulkWhatsAppSendResultItem[] = [];
 
-  for (let index = 0; index < phoneNumbers.length; index += 1) {
-    const phone = phoneNumbers[index];
+  for (let index = 0; index < uniquePhones.length; index += 1) {
+    const phone = uniquePhones[index];
     const conv = findConversationByPhone(conversations, phone);
     if (!conv) {
       results.push({

@@ -19,32 +19,19 @@ import {
   consumeBulkSendImport,
   loadBulkSendDraft,
   saveBulkSendDraft,
+  type BulkSendSendMode,
 } from "@/lib/whatsapp/bulk-send-storage";
 import { sendBulkWhatsAppMessages } from "@/lib/whatsapp/backend-whatsapp";
-import type { BulkWhatsAppSendResultItem } from "@/lib/whatsapp/types";
+import type { BulkWhatsAppSendPayload, BulkWhatsAppSendResultItem } from "@/lib/whatsapp/types";
+import { formatTemplatePreview } from "@/lib/whatsapp/whatsapp-templates";
+import { getStoredAccessToken } from "@/lib/auth/backend-login";
 import { cn } from "@/src/lib/utils";
 import {
   formatWhatsAppPhone,
-  normalizeWhatsAppPhoneDigits,
   parsePhoneNumbersInput,
 } from "./whatsapp-utils";
 
-function mergePhonesIntoTextarea(existing: string, newPhones: string[]): string {
-  const current = parsePhoneNumbersInput(existing);
-  const seen = new Set(current);
-  const added: string[] = [];
-
-  for (const phone of newPhones) {
-    const digits = normalizeWhatsAppPhoneDigits(phone);
-    if (digits.length < 9 || seen.has(digits)) continue;
-    seen.add(digits);
-    added.push(digits);
-  }
-
-  if (added.length === 0) return existing;
-  const merged = [...current, ...added];
-  return merged.join("\n");
-}
+const FALLBACK_TEMPLATE_NAME = "Client";
 
 function SendResultBadge({ success }: { success: boolean }) {
   return (
@@ -69,38 +56,124 @@ function SendResultBadge({ success }: { success: boolean }) {
 export function BulkSendPage() {
   const [phonesRaw, setPhonesRaw] = useState("");
   const [message, setMessage] = useState("");
+  const [templates, setTemplates] = useState<any[]>([]);
+  const [selectedTemplate, setSelectedTemplate] = useState<any>(null);
+  const [sendMode, setSendMode] = useState<BulkSendSendMode>("text");
+  const [templatesLoading, setTemplatesLoading] = useState(false);
   const [sending, setSending] = useState(false);
   const [sendProgress, setSendProgress] = useState({ current: 0, total: 0 });
   const [results, setResults] = useState<BulkWhatsAppSendResultItem[] | null>(null);
   const [leadsImportCount, setLeadsImportCount] = useState(0);
+  const [contactNamesByPhone, setContactNamesByPhone] = useState<Record<string, string>>({});
   const [draftReady, setDraftReady] = useState(false);
+  const [pendingTemplateId, setPendingTemplateId] = useState<string | undefined>();
 
   useEffect(() => {
+    // Les numéros sont déjà fusionnés dans le brouillon par stashBulkSendImport
+    // (avant la navigation). On consomme le pending pour le vider, puis on hydrate
+    // depuis le brouillon — fiable même si React Strict Mode relance cet effect.
+    consumeBulkSendImport();
     const draft = loadBulkSendDraft();
-    let phones = draft?.phonesRaw ?? "";
-    let messageText = draft?.message ?? "";
-    let importCount = draft?.leadsImportCount ?? 0;
 
-    const imported = consumeBulkSendImport();
-    if (imported && imported.length > 0) {
-      const before = parsePhoneNumbersInput(phones).length;
-      phones = mergePhonesIntoTextarea(phones, imported);
-      const added = parsePhoneNumbersInput(phones).length - before;
-      if (added > 0) {
-        importCount += added;
-        toast.success(
-          `${added} numéro${added > 1 ? "s" : ""} importé${added > 1 ? "s" : ""} depuis les Leads.`,
-        );
-      } else {
-        toast.info("Ces numéros sont déjà dans la liste.");
-      }
-    }
+    const phones = draft?.phonesRaw ?? "";
+    const messageText = draft?.message ?? "";
+    const importCount = draft?.leadsImportCount ?? 0;
+    const names = { ...(draft?.contactNamesByPhone ?? {}) };
+    const draftSendMode = draft?.sendMode ?? "text";
+    const draftTemplateId = draft?.selectedTemplateId;
+
+    saveBulkSendDraft({
+      phonesRaw: phones,
+      message: messageText,
+      leadsImportCount: importCount,
+      sendMode: draftSendMode,
+      selectedTemplateId: draftTemplateId,
+      contactNamesByPhone: names,
+    });
 
     setPhonesRaw(phones);
     setMessage(messageText);
     setLeadsImportCount(importCount);
+    setContactNamesByPhone(names);
+    setSendMode(draftSendMode);
+    setPendingTemplateId(draftTemplateId);
     setDraftReady(true);
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadTemplates() {
+      setTemplatesLoading(true);
+      try {
+        const token = getStoredAccessToken();
+        const res = await fetch("/api/whatsapp/templates", {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const data = (await res.json().catch(() => null)) as {
+          templates?: any[];
+          error?: string;
+        };
+        if (!res.ok) {
+          console.error("[BulkSendPage] templates error", res.status, data);
+          throw new Error(data?.error ?? `Erreur ${res.status}`);
+        }
+        const list = Array.isArray(data.templates) ? data.templates : [];
+        console.log(`[BulkSendPage] templates loaded count=${list.length}`, list);
+        if (!cancelled) {
+          setTemplates(list);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          console.error("[BulkSendPage] templates fetch failed", e);
+          toast.error(
+            e instanceof Error ? e.message : "Impossible de charger les templates.",
+          );
+        }
+      } finally {
+        if (!cancelled) setTemplatesLoading(false);
+      }
+    }
+
+    void loadTemplates();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!pendingTemplateId || templates.length === 0) return;
+    const match = templates.find((t) => t.id === pendingTemplateId);
+    if (match) {
+      setSelectedTemplate(match);
+      setMessage(typeof match.body === "string" ? match.body : "");
+    }
+    setPendingTemplateId(undefined);
+  }, [pendingTemplateId, templates]);
+
+  useEffect(() => {
+    if (!draftReady) return;
+    const activePhones = new Set(parsePhoneNumbersInput(phonesRaw));
+    const prunedNames = Object.fromEntries(
+      Object.entries(contactNamesByPhone).filter(([phone]) => activePhones.has(phone)),
+    );
+    saveBulkSendDraft({
+      phonesRaw,
+      message,
+      leadsImportCount,
+      sendMode,
+      selectedTemplateId: selectedTemplate?.id,
+      contactNamesByPhone: prunedNames,
+    });
+  }, [
+    draftReady,
+    phonesRaw,
+    message,
+    leadsImportCount,
+    sendMode,
+    selectedTemplate,
+    contactNamesByPhone,
+  ]);
 
   const parsedPhones = useMemo(() => parsePhoneNumbersInput(phonesRaw), [phonesRaw]);
   const progressPercent =
@@ -120,15 +193,51 @@ export function BulkSendPage() {
       phonesRaw,
       message,
       leadsImportCount,
+      sendMode,
+      selectedTemplateId: selectedTemplate?.id,
+      contactNamesByPhone,
     });
   };
+
+  const handleSendModeChange = (mode: BulkSendSendMode) => {
+    setSendMode(mode);
+    if (mode === "text") {
+      setSelectedTemplate(null);
+    }
+  };
+
+  const handleTemplateSelect = (templateId: string) => {
+    if (!templateId) {
+      setSelectedTemplate(null);
+      setMessage("");
+      return;
+    }
+    const template = templates.find((t) => t.id === templateId);
+    if (!template) return;
+    setSelectedTemplate(template);
+    setMessage(typeof template.body === "string" ? template.body : "");
+  };
+
+  const canSend =
+    parsedPhones.length > 0 &&
+    (sendMode === "template" ? Boolean(selectedTemplate) : Boolean(message.trim()));
+
+  const templatePreview = useMemo(() => {
+    if (sendMode !== "template" || !message.trim()) return "";
+    return formatTemplatePreview(message);
+  }, [sendMode, message]);
 
   const handleSend = async () => {
     if (parsedPhones.length === 0) {
       toast.error("Ajoutez au moins un numéro valide (un par ligne).");
       return;
     }
-    if (!message.trim()) {
+    if (sendMode === "template") {
+      if (!selectedTemplate) {
+        toast.error("Sélectionnez un template WhatsApp.");
+        return;
+      }
+    } else if (!message.trim()) {
       toast.error("Écrivez le message à envoyer.");
       return;
     }
@@ -137,13 +246,23 @@ export function BulkSendPage() {
     setResults(null);
     setSendProgress({ current: 0, total: parsedPhones.length });
 
+    let payload: BulkWhatsAppSendPayload;
+    if (sendMode === "template" && selectedTemplate) {
+      payload = {
+        phoneNumbers: parsedPhones,
+        templateName: selectedTemplate.name,
+        templateLanguage: "fr",
+        recipients: parsedPhones.map((phone) => ({
+          phoneNumber: phone,
+          variable1: contactNamesByPhone[phone]?.trim() || FALLBACK_TEMPLATE_NAME,
+        })),
+      };
+    } else {
+      payload = { phoneNumbers: parsedPhones, text: message.trim() };
+    }
+
     try {
-      const res = await sendBulkWhatsAppMessages(
-        {
-          phoneNumbers: parsedPhones,
-          text: message.trim(),
-        },
-        {
+      const res = await sendBulkWhatsAppMessages(payload, {
           onProgress: (completed, total) => {
             setSendProgress({ current: completed, total });
           },
@@ -256,20 +375,119 @@ export function BulkSendPage() {
                 <h3 className="text-sm font-semibold text-zinc-100">Message</h3>
               </div>
 
-              <label htmlFor="bulk-message" className="sr-only">
-                Message WhatsApp
-              </label>
-              <textarea
-                id="bulk-message"
-                value={message}
-                onChange={(e) => setMessage(e.target.value)}
-                rows={10}
-                placeholder="Bonjour, nous vous contactons au sujet de…"
-                className="w-full rounded-xl border border-zinc-700/80 bg-zinc-950/90 px-4 py-3 text-sm leading-relaxed text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-600/80 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
-              />
-              <p className="mt-2 text-xs text-zinc-500">
-                {message.trim().length} caractère{message.trim().length !== 1 ? "s" : ""}
-              </p>
+              <div className="mb-4 flex rounded-xl border border-zinc-800 bg-zinc-950/60 p-1">
+                <button
+                  type="button"
+                  onClick={() => handleSendModeChange("text")}
+                  className={cn(
+                    "flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition",
+                    sendMode === "text"
+                      ? "bg-emerald-600/20 text-emerald-300 ring-1 ring-emerald-500/30"
+                      : "text-zinc-400 hover:text-zinc-200",
+                  )}
+                >
+                  Texte libre
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleSendModeChange("template")}
+                  className={cn(
+                    "flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition",
+                    sendMode === "template"
+                      ? "bg-emerald-600/20 text-emerald-300 ring-1 ring-emerald-500/30"
+                      : "text-zinc-400 hover:text-zinc-200",
+                  )}
+                >
+                  Template WhatsApp
+                </button>
+              </div>
+
+              {sendMode === "template" ? (
+                <div className="mb-4 space-y-3">
+                  <label htmlFor="bulk-template" className="block text-xs font-medium text-zinc-400">
+                    Template approuvé
+                  </label>
+                  <div className="relative">
+                    <select
+                      id="bulk-template"
+                      value={selectedTemplate?.id ?? ""}
+                      onChange={(e) => handleTemplateSelect(e.target.value)}
+                      disabled={templatesLoading}
+                      className="w-full appearance-none rounded-xl border border-zinc-700/80 bg-zinc-950/90 px-4 py-3 pr-10 text-sm text-zinc-100 focus:border-emerald-600/80 focus:outline-none focus:ring-2 focus:ring-emerald-600/20 disabled:opacity-50"
+                    >
+                      <option value="">
+                        {templatesLoading
+                          ? "Chargement des templates…"
+                          : "Choisir un template"}
+                      </option>
+                      {templates.map((template) => (
+                        <option key={template.id} value={template.id}>
+                          {template.name}
+                        </option>
+                      ))}
+                    </select>
+                    {templatesLoading ? (
+                      <Loader2
+                        className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 animate-spin text-emerald-400"
+                        aria-hidden
+                      />
+                    ) : null}
+                  </div>
+                  {!templatesLoading && templates.length === 0 ? (
+                    <p className="text-xs text-amber-400/90">
+                      Aucun template personnalisé trouvé. Vérifiez WHATCHIMP_API_KEY côté serveur.
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {sendMode === "text" ? (
+                <>
+                  <label htmlFor="bulk-message" className="sr-only">
+                    Message WhatsApp
+                  </label>
+                  <textarea
+                    id="bulk-message"
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    rows={10}
+                    placeholder="Bonjour, nous vous contactons au sujet de…"
+                    className="w-full rounded-xl border border-zinc-700/80 bg-zinc-950/90 px-4 py-3 text-sm leading-relaxed text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-600/80 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                  />
+                  <p className="mt-2 text-xs text-zinc-500">
+                    {message.trim().length} caractère{message.trim().length !== 1 ? "s" : ""}
+                  </p>
+                </>
+              ) : (
+                <>
+                  <label htmlFor="bulk-template-body" className="sr-only">
+                    Corps du template
+                  </label>
+                  <textarea
+                    id="bulk-template-body"
+                    value={message}
+                    readOnly
+                    rows={6}
+                    placeholder="Sélectionnez un template pour voir son contenu…"
+                    className="w-full rounded-xl border border-zinc-700/80 bg-zinc-950/90 px-4 py-3 text-sm leading-relaxed text-zinc-100 placeholder:text-zinc-600 focus:outline-none"
+                  />
+
+                  {selectedTemplate && templatePreview ? (
+                    <div className="mt-4 rounded-xl border border-emerald-500/20 bg-emerald-950/20 p-4">
+                      <p className="font-mono text-[10px] uppercase tracking-widest text-emerald-400/80">
+                        Aperçu
+                      </p>
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-relaxed text-zinc-200">
+                        {templatePreview}
+                      </p>
+                      <p className="mt-3 text-xs text-zinc-500">
+                        <span className="font-mono text-emerald-400/90">{"{{1}}"}</span> sera remplacé
+                        par le nom du contact à l&apos;envoi.
+                      </p>
+                    </div>
+                  ) : null}
+                </>
+              )}
             </section>
           </div>
 
@@ -279,14 +497,20 @@ export function BulkSendPage() {
                 <h3 className="text-sm font-semibold text-zinc-100">Lancer l&apos;envoi</h3>
                 <p className="mt-1 text-xs text-zinc-500">
                   {parsedPhones.length > 0
-                    ? `Prêt à envoyer à ${parsedPhones.length} numéro${parsedPhones.length !== 1 ? "s" : ""}.`
-                    : "Ajoutez au moins un destinataire et un message."}
+                    ? sendMode === "template"
+                      ? selectedTemplate
+                        ? `Prêt à envoyer le template « ${selectedTemplate.name} » à ${parsedPhones.length} numéro${parsedPhones.length !== 1 ? "s" : ""}.`
+                        : "Sélectionnez un template WhatsApp."
+                      : `Prêt à envoyer à ${parsedPhones.length} numéro${parsedPhones.length !== 1 ? "s" : ""}.`
+                    : sendMode === "template"
+                      ? "Ajoutez des destinataires et sélectionnez un template."
+                      : "Ajoutez au moins un destinataire et un message."}
                 </p>
               </div>
 
               <button
                 type="button"
-                disabled={sending || parsedPhones.length === 0 || !message.trim()}
+                disabled={sending || !canSend}
                 onClick={() => void handleSend()}
                 className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-900/30 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
               >
