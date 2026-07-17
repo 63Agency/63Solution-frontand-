@@ -248,15 +248,33 @@ export function BulkSendPage() {
 
     let payload: BulkWhatsAppSendPayload;
     if (sendMode === "template" && selectedTemplate) {
-      payload = {
-        phoneNumbers: parsedPhones,
-        templateName: selectedTemplate.name,
-        templateLanguage: "fr",
-        recipients: parsedPhones.map((phone) => ({
-          phoneNumber: phone,
-          variable1: contactNamesByPhone[phone]?.trim() || FALLBACK_TEMPLATE_NAME,
-        })),
-      };
+      const templateBody =
+        typeof selectedTemplate.body === "string"
+          ? selectedTemplate.body
+          : typeof message === "string"
+            ? message
+            : "";
+      const hasVariable1 = templateBody.includes("{{1}}");
+
+      if (hasVariable1) {
+        payload = {
+          phoneNumbers: parsedPhones,
+          templateName: selectedTemplate.name,
+          templateLanguage: "fr",
+          recipients: parsedPhones.map((phone) => ({
+            phoneNumber: phone,
+            variable1: contactNamesByPhone[phone]?.trim() || FALLBACK_TEMPLATE_NAME,
+          })),
+        };
+      } else {
+        // Templates sans variables (ex. proposal_sent_status) → components vides, pas de variable1
+        payload = {
+          phoneNumbers: parsedPhones,
+          templateName: selectedTemplate.name,
+          templateLanguage: "fr",
+          components: [],
+        };
+      }
     } else {
       payload = { phoneNumbers: parsedPhones, text: message.trim() };
     }

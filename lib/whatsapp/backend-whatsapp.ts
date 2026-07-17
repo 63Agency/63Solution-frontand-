@@ -8,6 +8,7 @@ import type {
   WhatsAppConversation,
   WhatsAppMessage,
   WhatsAppMessagesPage,
+  WhatsAppTemplateComponent,
 } from "./types";
 
 function buildAuthHeaders(): Record<string, string> {
@@ -442,7 +443,7 @@ export async function sendBulkWhatsAppMessages(
     for (let index = 0; index < uniquePhones.length; index += 1) {
       const phone = uniquePhones[index];
       const variable1 = resolveVariable1(phone);
-      const components =
+      const components: WhatsAppTemplateComponent[] =
         variable1.length > 0
           ? [
               {
@@ -450,15 +451,17 @@ export async function sendBulkWhatsAppMessages(
                 parameters: [{ type: "text", text: variable1 }],
               },
             ]
-          : payload.components;
+          : Array.isArray(payload.components)
+            ? payload.components
+            : [];
 
       try {
         const parsed = await postBroadcast({
           phoneNumbers: [phone],
           templateName,
           templateLanguage,
+          components,
           ...(variable1 ? { variable1 } : {}),
-          ...(components ? { components } : {}),
         });
         if (!parsed) {
           throw new Error(
