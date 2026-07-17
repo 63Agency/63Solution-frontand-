@@ -104,16 +104,20 @@ function AudioPlayer({ mediaId }: { mediaId: string }) {
   );
 }
 
+/** True for a real Meta media id (numeric), not placeholders like "[audio]". */
+function isRealMetaMediaId(value: string | null | undefined): boolean {
+  const v = value?.trim() ?? "";
+  if (!v || v.startsWith("[")) return false;
+  return /^\d+$/.test(v);
+}
+
+/**
+ * Prefer message.mediaId or message.body — whichever holds the numeric Meta media id.
+ * If mediaId is "[audio]" / null / invalid, fall back to body.
+ */
 function resolveAudioMediaId(message: WhatsAppMessage): string {
-  if (message.mediaId?.trim()) return message.mediaId.trim();
-  // Some backends store the Meta media id in body for audio messages.
-  if (
-    message.type === "audio" &&
-    message.body?.trim() &&
-    !message.body.trim().startsWith("[")
-  ) {
-    return message.body.trim();
-  }
+  if (isRealMetaMediaId(message.mediaId)) return message.mediaId!.trim();
+  if (isRealMetaMediaId(message.body)) return message.body.trim();
   return "";
 }
 

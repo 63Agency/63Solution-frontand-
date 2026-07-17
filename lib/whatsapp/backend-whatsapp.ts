@@ -114,18 +114,20 @@ function parseMessage(row: unknown): WhatsAppMessage | null {
       ? rawType
       : "text";
 
+  const mediaIdRaw =
+    typeof r.mediaId === "string" && r.mediaId.trim() ? r.mediaId.trim() : null;
+  const mediaIdLooksReal =
+    mediaIdRaw && !mediaIdRaw.startsWith("[") && /^\d+$/.test(mediaIdRaw);
+  const bodyLooksReal =
+    type === "audio" && body && !body.startsWith("[") && /^\d+$/.test(body);
+
   return {
     id,
     conversationId,
     direction,
     body,
     type,
-    mediaId:
-      typeof r.mediaId === "string" && r.mediaId.trim()
-        ? r.mediaId.trim()
-        : type === "audio" && body && !body.startsWith("[")
-          ? body
-          : null,
+    mediaId: mediaIdLooksReal ? mediaIdRaw : bodyLooksReal ? body : null,
     status,
     metaMessageId:
       typeof r.metaMessageId === "string"
