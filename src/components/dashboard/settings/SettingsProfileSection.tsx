@@ -99,15 +99,15 @@ export function SettingsProfileSection({
   error,
   onProfileUpdated,
 }: SettingsProfileSectionProps) {
-  const [titre, setTitre] = useState("M.");
+  const [titre, setTitre] = useState<string>("M.");
   const [prenom, setPrenom] = useState("");
   const [nom, setNom] = useState("");
   const [dateNaissance, setDateNaissance] = useState("");
-  const [fuseauHoraire, setFuseauHoraire] = useState(TIMEZONE_OPTIONS[0]);
+  const [fuseauHoraire, setFuseauHoraire] = useState<string>(TIMEZONE_OPTIONS[0]);
   const [adresse, setAdresse] = useState("");
   const [ville, setVille] = useState("");
   const [codePostal, setCodePostal] = useState("");
-  const [pays, setPays] = useState("Morocco");
+  const [pays, setPays] = useState<string>("Morocco");
   const [avatarUrl, setAvatarUrl] = useState("");
   const [saving, setSaving] = useState(false);
   const [avatarSaving, setAvatarSaving] = useState(false);
