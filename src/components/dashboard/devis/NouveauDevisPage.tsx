@@ -581,7 +581,7 @@ export function NouveauDevisPage({ mode = "devis" }: NouveauDevisPageProps) {
               <button
                 type="button"
                 onClick={addLigne}
-                className="inline-flex items-center gap-1.5 rounded-md border border-indigo-600 bg-indigo-600/90 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-white hover:bg-indigo-500"
+                className="inline-flex items-center gap-1.5 border border-indigo-600 bg-indigo-600/90 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-white hover:bg-indigo-500"
               >
                 <Plus className="size-3.5" aria-hidden />
                 Ajouter une ligne
@@ -749,7 +749,7 @@ export function NouveauDevisPage({ mode = "devis" }: NouveauDevisPageProps) {
               type="button"
               onClick={handleSaveDraft}
               disabled={busy !== "idle"}
-              className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-900 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-2 border border-zinc-700 bg-zinc-900 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy === "saving" ? "Sauvegarde..." : `Sauvegarder ${docLabelLower}`}
             </button>
@@ -757,7 +757,7 @@ export function NouveauDevisPage({ mode = "devis" }: NouveauDevisPageProps) {
               type="button"
               onClick={handleDownloadPdf}
               disabled={busy !== "idle"}
-              className="inline-flex items-center gap-2 rounded-md border border-indigo-500 bg-indigo-600 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex items-center gap-2 border border-indigo-500 bg-indigo-600 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Download className="size-4" aria-hidden />
               {busy === "downloading"

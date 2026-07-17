@@ -10,8 +10,6 @@ import {
   LogOut,
   MessageCircle,
   MessagesSquare,
-  PanelLeft,
-  ChevronDown,
   Send,
   Settings,
   UserPlus,
@@ -21,6 +19,7 @@ import { cn } from "@/src/lib/utils";
 import {
   canAccessDashboardHref,
   canAccessParametres,
+  canViewTeamUsersSection,
   getDefaultDashboardRoute,
 } from "@/lib/auth/roles";
 import {
@@ -33,6 +32,15 @@ import { NotificationsProvider } from "./notifications/NotificationsProvider";
 
 const WHATSAPP_BASE = "/dashboard/conversations";
 const FACTURES_BASE = "/dashboard/factures";
+const PARAMETRES_BASE = "/dashboard/parametres";
+
+type SectionKey = "factures" | "whatsapp" | "parametres" | null;
+
+const parametresSubItems = [
+  { href: `${PARAMETRES_BASE}?tab=profil`, label: "Profil", tab: "profil" },
+  { href: `${PARAMETRES_BASE}?tab=password`, label: "Sécurité", tab: "password" },
+  { href: `${PARAMETRES_BASE}?tab=users`, label: "Gestion acc équipe", tab: "users" },
+] as const;
 
 const whatsappSubItems = [
   { href: WHATSAPP_BASE, label: "Conversations", icon: MessagesSquare, exact: true },
@@ -45,9 +53,9 @@ const whatsappSubItems = [
 ] as const;
 
 const facturesSubItems = [
-  { href: `${FACTURES_BASE}?tab=devis`, label: "Devis" },
-  { href: `${FACTURES_BASE}?tab=factures`, label: "Factures" },
-  { href: `${FACTURES_BASE}?tab=propositions`, label: "Propositions" },
+  { href: `${FACTURES_BASE}?tab=devis`, label: "Devis", tab: "devis" },
+  { href: `${FACTURES_BASE}?tab=factures`, label: "Factures", tab: "factures" },
+  { href: `${FACTURES_BASE}?tab=propositions`, label: "Propositions", tab: "propositions" },
 ] as const;
 
 const allNavItems = [
@@ -64,6 +72,10 @@ function isFacturesPath(pathname: string): boolean {
   return pathname === FACTURES_BASE || pathname.startsWith(`${FACTURES_BASE}/`);
 }
 
+function isParametresPath(pathname: string): boolean {
+  return pathname === PARAMETRES_BASE || pathname.startsWith(`${PARAMETRES_BASE}/`);
+}
+
 export function IndustryDashboardShell({
   children,
 }: Readonly<{
@@ -72,12 +84,10 @@ export function IndustryDashboardShell({
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const [collapsed, setCollapsed] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [userRole, setUserRole] = useState("admin");
   const [roleResolved, setRoleResolved] = useState(false);
-  const [whatsAppExpanded, setWhatsAppExpanded] = useState(true);
-  const [facturesExpanded, setFacturesExpanded] = useState(true);
+  const [openSection, setOpenSection] = useState<SectionKey>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,35 +109,14 @@ export function IndustryDashboardShell({
 
   const whatsappActive = isWhatsAppPath(pathname ?? "");
   const facturesActive = isFacturesPath(pathname ?? "");
+  const parametresActive = isParametresPath(pathname ?? "");
 
   useEffect(() => {
-    // Persist user preference across pages/reloads.
-    if (typeof window === "undefined") return;
-    const saved = window.localStorage.getItem("dashboard_whatsapp_expanded");
-    if (saved === "0") setWhatsAppExpanded(false);
-    else if (saved === "1") setWhatsAppExpanded(true);
-    else setWhatsAppExpanded(whatsappActive); // default: expanded only when in WhatsApp section
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem("dashboard_whatsapp_expanded", whatsAppExpanded ? "1" : "0");
-  }, [whatsAppExpanded]);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const saved = window.localStorage.getItem("dashboard_factures_expanded");
-    if (saved === "0") setFacturesExpanded(false);
-    else if (saved === "1") setFacturesExpanded(true);
-    else setFacturesExpanded(facturesActive);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem("dashboard_factures_expanded", facturesExpanded ? "1" : "0");
-  }, [facturesExpanded]);
+    if (facturesActive) setOpenSection("factures");
+    else if (whatsappActive) setOpenSection("whatsapp");
+    else if (parametresActive) setOpenSection("parametres");
+    else setOpenSection(null);
+  }, [facturesActive, whatsappActive, parametresActive]);
 
   useEffect(() => {
     if (!roleResolved || !pathname) return;
@@ -144,229 +133,224 @@ export function IndustryDashboardShell({
   const showWhatsApp = !roleResolved || canAccessDashboardHref(WHATSAPP_BASE, userRole);
   const showFactures = !roleResolved || canAccessDashboardHref(FACTURES_BASE, userRole);
   const showParametres = !roleResolved || canAccessParametres(userRole);
+  const showUsersSub =
+    !roleResolved || canViewTeamUsersSection(userRole);
 
-  const linkClass = (active: boolean) =>
+  const visibleParametresSubItems = useMemo(
+    () =>
+      showUsersSub
+        ? parametresSubItems
+        : parametresSubItems.filter((item) => item.tab !== "users"),
+    [showUsersSub],
+  );
+
+  const iconBtnClass = (active: boolean) =>
     cn(
-      "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+      "flex size-11 items-center justify-center rounded-xl transition-colors",
       active
         ? "bg-zinc-800 text-white"
-        : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200",
+        : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-100",
     );
 
   const subLinkClass = (active: boolean) =>
     cn(
-      "flex items-center gap-2.5 rounded-md py-2 pl-9 pr-3 text-[13px] font-medium transition-colors",
+      "block rounded-lg px-3 py-2.5 text-[15px] font-medium transition-colors",
       active
         ? "bg-zinc-800 text-white"
-        : "text-zinc-500 hover:bg-zinc-800/50 hover:text-zinc-200",
+        : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100",
     );
+
+  const isFacturesSubActive = (tab: string) => {
+    if (!facturesActive) return false;
+    if (tab === "devis") {
+      return (
+        (pathname === FACTURES_BASE && !searchParams.get("tab")) ||
+        searchParams.get("tab") === "devis" ||
+        Boolean(pathname?.startsWith(`${FACTURES_BASE}/devis`))
+      );
+    }
+    if (tab === "factures") {
+      return (
+        searchParams.get("tab") === "factures" ||
+        Boolean(pathname?.startsWith(`${FACTURES_BASE}/facture`))
+      );
+    }
+    return (
+      searchParams.get("tab") === "propositions" ||
+      Boolean(pathname?.startsWith(`${FACTURES_BASE}/proposition`))
+    );
+  };
+
+  const sectionTitle =
+    openSection === "factures"
+      ? "Devis & Factures"
+      : openSection === "whatsapp"
+        ? "WhatsApp"
+        : openSection === "parametres"
+          ? "Configuration"
+          : null;
 
   return (
     <NotificationsProvider>
       <div className="flex h-dvh max-h-dvh overflow-hidden bg-zinc-950 text-zinc-100">
-        <aside
-          className={cn(
-            "flex shrink-0 flex-col border-r border-zinc-800 bg-zinc-950 transition-[width] duration-200",
-            collapsed ? "w-[72px]" : "w-64",
-          )}
-        >
-          <div className="flex h-14 items-center border-b border-zinc-800 px-2">
-            <button
-              type="button"
-              onClick={() => setCollapsed((c) => !c)}
-              className="rounded-md p-2 text-zinc-400 hover:bg-zinc-800 hover:text-white"
-              aria-label={collapsed ? "Agrandir le menu" : "Réduire le menu"}
-            >
-              <PanelLeft
-                className={cn("size-5 transition-transform", collapsed && "rotate-180")}
+        {/* Primary icon rail */}
+        <aside className="flex w-[72px] shrink-0 flex-col border-r border-zinc-800 bg-zinc-950">
+          <div className="flex h-14 items-center justify-center border-b border-zinc-800">
+            <Link href="/dashboard" aria-label="63 Agency — accueil" className="p-1">
+              <Image
+                src="/images/63.png"
+                alt="63"
+                width={36}
+                height={36}
+                className="size-9 object-contain"
+                priority
               />
-            </button>
-            {!collapsed ? (
-              <Link
-                href="/dashboard"
-                className="ml-1 flex min-w-0 flex-1 items-center"
-                aria-label="63 Agency — accueil"
-              >
-                <Image
-                  src="/images/63AgencyTextwhit.png"
-                  alt="63 Agency"
-                  width={160}
-                  height={32}
-                  className="h-8 w-auto max-w-full object-contain object-left"
-                  priority
-                />
-              </Link>
-            ) : null}
+            </Link>
           </div>
 
-          <nav className="flex flex-1 flex-col gap-1 overflow-y-auto p-2">
+          <nav className="flex flex-1 flex-col items-center gap-2 overflow-y-auto py-3">
             {navItems.map((item) => {
               const Icon = item.icon;
               const active =
                 item.href === "/dashboard"
                   ? pathname === "/dashboard"
-                  : pathname === item.href || pathname.startsWith(`${item.href}/`);
+                  : pathname === item.href ||
+                    Boolean(pathname?.startsWith(`${item.href}/`));
               return (
-                <Link key={item.href} href={item.href} className={linkClass(active)}>
-                  <Icon className="size-4 shrink-0" aria-hidden />
-                  {!collapsed ? <span>{item.label}</span> : null}
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  title={item.label}
+                  aria-label={item.label}
+                  onClick={() => setOpenSection(null)}
+                  className={iconBtnClass(active)}
+                >
+                  <Icon className="size-6" strokeWidth={1.75} aria-hidden />
                 </Link>
               );
             })}
 
             {showFactures ? (
-              <div className="mt-1">
-                {collapsed ? (
-                  <Link
-                    href={FACTURES_BASE}
-                    className={linkClass(facturesActive)}
-                    title="Devis, factures & propositions"
-                  >
-                    <FileText className="size-4 shrink-0" aria-hidden />
-                  </Link>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setFacturesExpanded((v) => !v)}
-                      className={cn(
-                        "flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-sm font-semibold transition-colors hover:bg-zinc-800/40",
-                        facturesActive ? "text-indigo-300" : "text-zinc-300",
-                      )}
-                      aria-expanded={facturesExpanded}
-                      aria-label="Afficher ou masquer Devis, factures & propositions"
-                    >
-                      <span className="flex items-center gap-3">
-                        <FileText className="size-4 shrink-0" aria-hidden />
-                        <span>Devis &amp; Factures</span>
-                      </span>
-                      <ChevronDown
-                        className={cn(
-                          "size-4 shrink-0 text-zinc-500 transition-transform",
-                          facturesExpanded ? "rotate-0" : "-rotate-90",
-                        )}
-                        aria-hidden
-                      />
-                    </button>
-
-                    {facturesExpanded ? (
-                      <ul className="space-y-0.5">
-                        {facturesSubItems.map((sub) => {
-                          const tab = sub.href.split("tab=")[1] ?? "";
-                          const activeTab =
-                            tab === "devis"
-                              ? (pathname === FACTURES_BASE && !searchParams.get("tab")) ||
-                                searchParams.get("tab") === "devis" ||
-                                pathname.startsWith(`${FACTURES_BASE}/devis`)
-                              : tab === "factures"
-                                ? searchParams.get("tab") === "factures" ||
-                                  pathname.startsWith(`${FACTURES_BASE}/facture`)
-                                : searchParams.get("tab") === "propositions" ||
-                                  pathname.startsWith(`${FACTURES_BASE}/proposition`);
-
-                          const subActive = facturesActive && activeTab;
-
-                          return (
-                            <li key={sub.href}>
-                              <Link href={sub.href} className={subLinkClass(subActive)}>
-                                <span
-                                  className="size-1.5 shrink-0 rounded-full bg-zinc-700/70"
-                                  aria-hidden
-                                />
-                                {sub.label}
-                              </Link>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    ) : null}
-                  </>
-                )}
-              </div>
+              <button
+                type="button"
+                title="Devis & Factures"
+                aria-label="Devis & Factures"
+                aria-pressed={openSection === "factures"}
+                onClick={() => {
+                  setOpenSection((prev) => (prev === "factures" ? null : "factures"));
+                  if (!facturesActive) router.push(FACTURES_BASE);
+                }}
+                className={iconBtnClass(facturesActive || openSection === "factures")}
+              >
+                <FileText className="size-6" strokeWidth={1.75} aria-hidden />
+              </button>
             ) : null}
 
             {showWhatsApp ? (
-              <div className="mt-1">
-                {collapsed ? (
-                  <Link
-                    href={WHATSAPP_BASE}
-                    className={linkClass(whatsappActive)}
-                    title="WhatsApp"
-                  >
-                    <MessageCircle className="size-4 shrink-0" aria-hidden />
-                  </Link>
-                ) : (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setWhatsAppExpanded((v) => !v)}
-                      className={cn(
-                        "flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-sm font-semibold transition-colors hover:bg-zinc-800/40",
-                        whatsappActive ? "text-emerald-400" : "text-zinc-300",
-                      )}
-                      aria-expanded={whatsAppExpanded}
-                      aria-label="Afficher ou masquer les sous-sections WhatsApp"
-                    >
-                      <span className="flex items-center gap-3">
-                        <MessageCircle className="size-4 shrink-0" aria-hidden />
-                        <span>WhatsApp</span>
-                      </span>
-                      <ChevronDown
-                        className={cn(
-                          "size-4 shrink-0 text-zinc-500 transition-transform",
-                          whatsAppExpanded ? "rotate-0" : "-rotate-90",
-                        )}
-                        aria-hidden
-                      />
-                    </button>
-
-                    {whatsAppExpanded ? (
-                      <ul className="space-y-0.5">
-                        {whatsappSubItems.map((sub) => {
-                          const SubIcon = sub.icon;
-                          const subActive = sub.exact
-                            ? pathname === sub.href
-                            : pathname === sub.href || pathname.startsWith(`${sub.href}/`);
-                          return (
-                            <li key={sub.href}>
-                              <Link href={sub.href} className={subLinkClass(subActive)}>
-                                <SubIcon className="size-3.5 shrink-0 opacity-80" aria-hidden />
-                                {sub.label}
-                              </Link>
-                            </li>
-                          );
-                        })}
-                      </ul>
-                    ) : null}
-                  </>
-                )}
-              </div>
+              <button
+                type="button"
+                title="WhatsApp"
+                aria-label="WhatsApp"
+                aria-pressed={openSection === "whatsapp"}
+                onClick={() => {
+                  setOpenSection((prev) => (prev === "whatsapp" ? null : "whatsapp"));
+                  if (!whatsappActive) router.push(WHATSAPP_BASE);
+                }}
+                className={iconBtnClass(whatsappActive || openSection === "whatsapp")}
+              >
+                <MessageCircle className="size-6" strokeWidth={1.75} aria-hidden />
+              </button>
             ) : null}
           </nav>
 
-          <div className="border-t border-zinc-800 p-2">
+          <div className="flex flex-col items-center gap-2 border-t border-zinc-800 py-3">
             {showParametres ? (
-              <Link
-                href="/dashboard/parametres"
-                className={linkClass(
-                  pathname === "/dashboard/parametres" ||
-                    pathname.startsWith("/dashboard/parametres/"),
-                )}
+              <button
+                type="button"
+                title="Paramètres"
+                aria-label="Paramètres"
+                aria-pressed={openSection === "parametres"}
+                onClick={() => {
+                  setOpenSection((prev) => (prev === "parametres" ? null : "parametres"));
+                  if (!parametresActive) router.push(`${PARAMETRES_BASE}?tab=profil`);
+                }}
+                className={iconBtnClass(parametresActive || openSection === "parametres")}
               >
-                <Settings className="size-4 shrink-0" aria-hidden />
-                {!collapsed ? <span>Paramètres</span> : null}
-              </Link>
+                <Settings className="size-6" strokeWidth={1.75} aria-hidden />
+              </button>
             ) : null}
             <button
               type="button"
+              title="Déconnexion"
+              aria-label="Déconnexion"
               onClick={() => setShowLogoutConfirm(true)}
-              className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-200"
+              className={iconBtnClass(false)}
             >
-              <LogOut className="size-4 shrink-0" aria-hidden />
-              {!collapsed ? <span>Déconnexion</span> : null}
+              <LogOut className="size-6" strokeWidth={1.75} aria-hidden />
             </button>
           </div>
         </aside>
+
+        {/* Secondary section panel */}
+        {openSection && sectionTitle ? (
+          <aside className="flex w-[240px] shrink-0 flex-col border-r border-zinc-800 bg-zinc-950">
+            <div className="flex h-14 items-center border-b border-zinc-800 px-5">
+              <h2 className="text-lg font-semibold tracking-tight text-white">
+                {sectionTitle}
+              </h2>
+            </div>
+            <nav className="flex-1 overflow-y-auto px-3 py-4">
+              {openSection === "factures" ? (
+                <ul className="space-y-0.5">
+                  {facturesSubItems.map((sub) => (
+                    <li key={sub.href}>
+                      <Link
+                        href={sub.href}
+                        className={subLinkClass(isFacturesSubActive(sub.tab))}
+                      >
+                        {sub.label}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
+              {openSection === "whatsapp" ? (
+                <ul className="space-y-0.5">
+                  {whatsappSubItems.map((sub) => {
+                    const subActive = sub.exact
+                      ? pathname === sub.href
+                      : pathname === sub.href ||
+                        Boolean(pathname?.startsWith(`${sub.href}/`));
+                    return (
+                      <li key={sub.href}>
+                        <Link href={sub.href} className={subLinkClass(subActive)}>
+                          {sub.label}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+
+              {openSection === "parametres" ? (
+                <ul className="space-y-0.5">
+                  {visibleParametresSubItems.map((sub) => {
+                    const currentTab = searchParams.get("tab") ?? "profil";
+                    const subActive = parametresActive && currentTab === sub.tab;
+                    return (
+                      <li key={sub.href}>
+                        <Link href={sub.href} className={subLinkClass(subActive)}>
+                          {sub.label}
+                        </Link>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : null}
+            </nav>
+          </aside>
+        ) : null}
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
           <DashboardTopBar />
@@ -393,7 +377,7 @@ export function IndustryDashboardShell({
                 <button
                   type="button"
                   onClick={() => setShowLogoutConfirm(false)}
-                  className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800"
+                  className="border border-zinc-700 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-200 transition hover:bg-zinc-800"
                 >
                   Annuler
                 </button>
@@ -403,7 +387,7 @@ export function IndustryDashboardShell({
                     clearAuthSession();
                     window.location.href = "/login";
                   }}
-                  className="rounded-md border border-red-700 bg-red-700/80 px-4 py-2 text-sm font-medium text-white hover:bg-red-600"
+                  className="border border-red-700 bg-red-700/80 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white transition hover:bg-red-600"
                 >
                   Se déconnecter
                 </button>

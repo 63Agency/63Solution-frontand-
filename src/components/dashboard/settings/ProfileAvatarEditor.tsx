@@ -113,7 +113,7 @@ export function ProfileAvatarEditor({
             type="button"
             disabled={disabled || uploading}
             onClick={() => inputRef.current?.click()}
-            className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+            className="inline-flex items-center gap-2 border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-50"
           >
             <Camera className="size-3.5" aria-hidden />
             Importer une image
@@ -123,7 +123,7 @@ export function ProfileAvatarEditor({
               type="button"
               disabled={disabled || uploading}
               onClick={() => onAvatarChange("")}
-              className="inline-flex items-center gap-2 rounded-lg border border-red-900/50 px-3 py-2 text-xs font-medium text-red-300 hover:bg-red-950/40 disabled:opacity-50"
+              className="inline-flex items-center gap-2 border border-red-700/60 px-3 py-2 font-mono text-[10px] uppercase tracking-widest text-red-300 transition hover:bg-red-900/30 disabled:opacity-50"
             >
               <Trash2 className="size-3.5" aria-hidden />
               Supprimer

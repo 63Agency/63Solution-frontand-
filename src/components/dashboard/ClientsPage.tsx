@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -11,8 +11,11 @@ import {
   type BackendClientRecord,
   type BackendClientUpdatePayload,
 } from "../../../lib/devis/backend-devis";
+import { cn } from "@/src/lib/utils";
 
 type ClientSource = "api" | "unavailable";
+
+const CLIENTS_PER_PAGE = 15;
 
 const emailOk = (v: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v.trim());
 
@@ -20,11 +23,26 @@ function canManageClient(row: BackendClientRecord): boolean {
   return !isDerivedSyntheticClientId(row.id);
 }
 
+function buildPageItems(currentPage: number, totalPages: number): (number | "...")[] {
+  if (totalPages <= 3) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+  const items: (number | "...")[] = [1];
+  const start = Math.max(2, currentPage - 1);
+  const end = Math.min(totalPages - 1, currentPage + 1);
+  if (start > 2) items.push("...");
+  for (let page = start; page <= end; page += 1) items.push(page);
+  if (end < totalPages - 1) items.push("...");
+  items.push(totalPages);
+  return items;
+}
+
 export function ClientsPage() {
   const [rows, setRows] = useState<BackendClientRecord[]>([]);
   const [source, setSource] = useState<ClientSource>("unavailable");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
   const [editing, setEditing] = useState<BackendClientRecord | null>(null);
   const [editNom, setEditNom] = useState("");
   const [editEmail, setEditEmail] = useState("");
@@ -33,6 +51,24 @@ export function ClientsPage() {
   const [saving, setSaving] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<BackendClientRecord | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const totalPages = Math.max(1, Math.ceil(rows.length / CLIENTS_PER_PAGE));
+
+  const pageRows = useMemo(() => {
+    const start = (currentPage - 1) * CLIENTS_PER_PAGE;
+    return rows.slice(start, start + CLIENTS_PER_PAGE);
+  }, [rows, currentPage]);
+
+  const pageItems = useMemo(
+    () => buildPageItems(currentPage, totalPages),
+    [currentPage, totalPages],
+  );
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   const loadClients = useCallback(async () => {
     setLoading(true);
@@ -126,7 +162,9 @@ export function ClientsPage() {
       setRows((prev) => prev.filter((r) => r.id !== pendingDelete.id));
       setPendingDelete(null);
       if (editing?.id === pendingDelete.id) setEditing(null);
-      toast.success("Client supprimé du carnet (les devis, factures et propositions existants ne sont pas supprimés).");
+      toast.success(
+        "Client supprimé du carnet (les devis, factures et propositions existants ne sont pas supprimés).",
+      );
       await loadClients();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Suppression impossible.");
@@ -148,7 +186,7 @@ export function ClientsPage() {
       </header>
 
       <div className="px-6 py-6 md:px-8 md:py-8">
-        <section className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-5">
+        <section>
           <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
             <div>
               <h2 className="text-base font-medium text-white">Répertoire</h2>
@@ -168,59 +206,113 @@ export function ClientsPage() {
               Aucun client dans le carnet. Ajoute des clients via l’API (POST /clients).
             </p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[720px] border-collapse font-mono text-sm text-zinc-300">
-                <thead>
-                  <tr className="border-b border-zinc-700 text-left text-[10px] uppercase tracking-widest text-zinc-500">
-                    <th className="pb-3 pr-4 font-normal">Nom</th>
-                    <th className="pb-3 pr-4 font-normal">Email</th>
-                    <th className="pb-3 pr-4 font-normal">Téléphone</th>
-                    <th className="pb-3 pr-4 font-normal">ICE</th>
-                    <th className="pb-3 pl-2 text-right font-normal">Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => {
-                    const canEdit = canManageClient(row);
-                    return (
-                      <tr
-                        key={row.id}
-                        className="border-b border-zinc-800 transition hover:bg-zinc-800/40"
-                      >
-                        <td className="py-3 pr-4 text-white">{row.clientNom || "—"}</td>
-                        <td className="py-3 pr-4">{row.clientEmail || "—"}</td>
-                        <td className="py-3 pr-4">{row.clientTelephone || "—"}</td>
-                        <td className="py-3 pr-4">{row.clientIce || "—"}</td>
-                        <td className="py-3 pl-2 text-right">
-                          <div className="inline-flex items-center justify-end gap-1">
-                            <button
-                              type="button"
-                              onClick={() => openEdit(row)}
-                              disabled={!canEdit || deletingId === row.id}
-                              title={canEdit ? "Modifier le client" : "Id client non serveur"}
-                              className="inline-flex items-center justify-center rounded border border-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
-                              aria-label="Modifier le client"
-                            >
-                              <Pencil className="size-3.5" aria-hidden />
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => setPendingDelete(row)}
-                              disabled={!canEdit || deletingId === row.id}
-                              title={canEdit ? "Supprimer le client du carnet" : "Id client non serveur"}
-                              className="inline-flex items-center justify-center rounded border border-red-700/60 p-1.5 text-red-300 hover:bg-red-900/30 disabled:cursor-not-allowed disabled:opacity-40"
-                              aria-label="Supprimer le client"
-                            >
-                              <Trash2 className="size-3.5" aria-hidden />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <>
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[720px] border-collapse font-mono text-sm text-zinc-300">
+                  <thead>
+                    <tr className="border-b border-zinc-700 text-left text-[10px] uppercase tracking-widest text-zinc-500">
+                      <th className="pb-3 pr-4 font-normal">Nom</th>
+                      <th className="pb-3 pr-4 font-normal">Email</th>
+                      <th className="pb-3 pr-4 font-normal">Téléphone</th>
+                      <th className="pb-3 pr-4 font-normal">ICE</th>
+                      <th className="pb-3 pl-2 text-right font-normal">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pageRows.map((row) => {
+                      const canEdit = canManageClient(row);
+                      return (
+                        <tr
+                          key={row.id}
+                          className="border-b border-zinc-800 transition hover:bg-zinc-800/40"
+                        >
+                          <td className="py-3 pr-4 text-white">{row.clientNom || "—"}</td>
+                          <td className="py-3 pr-4">{row.clientEmail || "—"}</td>
+                          <td className="py-3 pr-4">{row.clientTelephone || "—"}</td>
+                          <td className="py-3 pr-4">{row.clientIce || "—"}</td>
+                          <td className="py-3 pl-2 text-right">
+                            <div className="inline-flex items-center justify-end gap-1">
+                              <button
+                                type="button"
+                                onClick={() => openEdit(row)}
+                                disabled={!canEdit || deletingId === row.id}
+                                title={canEdit ? "Modifier le client" : "Id client non serveur"}
+                                className="inline-flex items-center justify-center rounded border border-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
+                                aria-label="Modifier le client"
+                              >
+                                <Pencil className="size-3.5" aria-hidden />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setPendingDelete(row)}
+                                disabled={!canEdit || deletingId === row.id}
+                                title={
+                                  canEdit
+                                    ? "Supprimer le client du carnet"
+                                    : "Id client non serveur"
+                                }
+                                className="inline-flex items-center justify-center rounded border border-red-700/60 p-1.5 text-red-300 hover:bg-red-900/30 disabled:cursor-not-allowed disabled:opacity-40"
+                                aria-label="Supprimer le client"
+                              >
+                                <Trash2 className="size-3.5" aria-hidden />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {totalPages > 1 ? (
+                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 pt-3 font-mono text-[11px] uppercase tracking-widest text-zinc-400">
+                  <p>
+                    Page {currentPage} / {totalPages} — {rows.length} client
+                    {rows.length !== 1 ? "s" : ""}
+                  </p>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                      disabled={currentPage === 1}
+                      className="rounded border border-zinc-700 px-2.5 py-1.5 text-zinc-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Précédent
+                    </button>
+                    {pageItems.map((item, idx) =>
+                      item === "..." ? (
+                        <span key={`dots-${idx}`} className="px-1 text-zinc-500">
+                          …
+                        </span>
+                      ) : (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => setCurrentPage(item)}
+                          className={cn(
+                            "rounded border px-2.5 py-1.5",
+                            item === currentPage
+                              ? "border-zinc-500 bg-zinc-800 text-white"
+                              : "border-zinc-700 text-zinc-300 hover:bg-zinc-800",
+                          )}
+                        >
+                          {item}
+                        </button>
+                      ),
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                      disabled={currentPage === totalPages}
+                      className="rounded border border-zinc-700 px-2.5 py-1.5 text-zinc-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Suivant
+                    </button>
+                  </div>
+                </div>
+              ) : null}
+            </>
           )}
         </section>
       </div>
@@ -245,7 +337,7 @@ export function ClientsPage() {
                 type="button"
                 onClick={() => setPendingDelete(null)}
                 disabled={deletingId === pendingDelete.id}
-                className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                className="border border-zinc-700 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-50"
               >
                 Annuler
               </button>
@@ -253,7 +345,7 @@ export function ClientsPage() {
                 type="button"
                 onClick={() => void handleConfirmDelete()}
                 disabled={deletingId === pendingDelete.id}
-                className="rounded-md border border-red-700 bg-red-700/80 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:opacity-50"
+                className="border border-red-700 bg-red-700/80 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white transition hover:bg-red-600 disabled:opacity-50"
               >
                 {deletingId === pendingDelete.id ? "Suppression…" : "Supprimer"}
               </button>
@@ -314,7 +406,7 @@ export function ClientsPage() {
                 type="button"
                 onClick={() => setEditing(null)}
                 disabled={saving}
-                className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+                className="border border-zinc-700 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-200 transition hover:bg-zinc-800 disabled:opacity-50"
               >
                 Annuler
               </button>
@@ -322,7 +414,7 @@ export function ClientsPage() {
                 type="button"
                 onClick={() => void handleSaveClient()}
                 disabled={saving}
-                className="rounded-md border border-indigo-700 bg-indigo-700/80 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-600 disabled:opacity-50"
+                className="border border-indigo-700 bg-indigo-700/80 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white transition hover:bg-indigo-600 disabled:opacity-50"
               >
                 {saving ? "Enregistrement…" : "Enregistrer"}
               </button>

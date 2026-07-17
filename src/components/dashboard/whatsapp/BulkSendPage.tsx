@@ -343,7 +343,7 @@ export function BulkSendPage() {
                 <Link
                   href={BULK_SEND_IMPORT_PATH}
                   onClick={handleImportFromLeads}
-                  className="inline-flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs font-medium text-sky-200 transition hover:bg-sky-500/20"
+                  className="inline-flex items-center gap-2 border border-sky-500/40 bg-sky-600/15 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-sky-200 transition hover:bg-sky-600/25"
                 >
                   <Download className="size-3.5" aria-hidden />
                   Importer depuis les Leads
@@ -375,15 +375,15 @@ export function BulkSendPage() {
                 <h3 className="text-sm font-semibold text-zinc-100">Message</h3>
               </div>
 
-              <div className="mb-4 flex rounded-xl border border-zinc-800 bg-zinc-950/60 p-1">
+              <div className="mb-4 flex border border-zinc-800 bg-zinc-950/60 p-1">
                 <button
                   type="button"
                   onClick={() => handleSendModeChange("text")}
                   className={cn(
-                    "flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition",
+                    "flex-1 px-3 py-2 font-mono text-[11px] uppercase tracking-widest transition",
                     sendMode === "text"
-                      ? "bg-emerald-600/20 text-emerald-300 ring-1 ring-emerald-500/30"
-                      : "text-zinc-400 hover:text-zinc-200",
+                      ? "bg-zinc-800 text-white"
+                      : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200",
                   )}
                 >
                   Texte libre
@@ -392,10 +392,10 @@ export function BulkSendPage() {
                   type="button"
                   onClick={() => handleSendModeChange("template")}
                   className={cn(
-                    "flex-1 rounded-lg px-3 py-2 text-xs font-semibold transition",
+                    "flex-1 px-3 py-2 font-mono text-[11px] uppercase tracking-widest transition",
                     sendMode === "template"
-                      ? "bg-emerald-600/20 text-emerald-300 ring-1 ring-emerald-500/30"
-                      : "text-zinc-400 hover:text-zinc-200",
+                      ? "bg-zinc-800 text-white"
+                      : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200",
                   )}
                 >
                   Template WhatsApp
@@ -512,7 +512,7 @@ export function BulkSendPage() {
                 type="button"
                 disabled={sending || !canSend}
                 onClick={() => void handleSend()}
-                className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-emerald-900/30 transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex items-center gap-2 border border-emerald-500 bg-emerald-600 px-6 py-3 font-mono text-[11px] uppercase tracking-widest text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {sending ? (
                   <Loader2 className="size-4 animate-spin" aria-hidden />

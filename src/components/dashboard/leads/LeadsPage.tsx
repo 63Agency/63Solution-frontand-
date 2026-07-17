@@ -161,7 +161,7 @@ export function LeadsPage() {
       </header>
 
       <div className="px-6 py-6 md:px-8 md:py-8">
-        <section className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-5">
+        <section>
           <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-sky-600/15 ring-1 ring-sky-500/25">
@@ -181,7 +181,7 @@ export function LeadsPage() {
                   type="button"
                   onClick={() => void handleSync()}
                   disabled={syncing}
-                  className="inline-flex items-center gap-2 rounded-md border border-sky-500/40 bg-sky-600/15 px-3 py-2 text-sm text-sky-200 hover:bg-sky-600/25 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex items-center gap-2 border border-sky-500/40 bg-sky-600/15 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-sky-200 transition hover:bg-sky-600/25 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {syncing ? (
                     <Loader2 className="size-4 animate-spin" aria-hidden />
@@ -196,7 +196,7 @@ export function LeadsPage() {
                 <button
                   type="button"
                   onClick={() => setStatusMenuOpen((open) => !open)}
-                  className="inline-flex items-center gap-2 rounded-md border border-zinc-700 bg-zinc-950/60 px-3 py-2 text-sm text-zinc-200 hover:bg-zinc-800/60"
+                  className="inline-flex items-center gap-2 border border-zinc-700 bg-zinc-900 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-200 transition hover:bg-zinc-800/60"
                   aria-expanded={statusMenuOpen}
                   aria-haspopup="listbox"
                 >
@@ -256,10 +256,10 @@ export function LeadsPage() {
                 setSelectedListName(null);
               }}
               className={cn(
-                "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                "border px-4 py-2 font-mono text-[11px] uppercase tracking-widest transition",
                 selectedListName === null
-                  ? "border-sky-500/50 bg-sky-500/15 text-sky-200"
-                  : "border-zinc-700 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200",
+                  ? "border-zinc-700 bg-zinc-800 text-white"
+                  : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200",
               )}
             >
               All lists
@@ -273,10 +273,10 @@ export function LeadsPage() {
                   setSelectedListName(listName);
                 }}
                 className={cn(
-                  "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors",
+                  "border px-4 py-2 font-mono text-[11px] uppercase tracking-widest transition",
                   selectedListName === listName
-                    ? "border-sky-500/50 bg-sky-500/15 text-sky-200"
-                    : "border-zinc-700 text-zinc-400 hover:border-zinc-600 hover:text-zinc-200",
+                    ? "border-zinc-700 bg-zinc-800 text-white"
+                    : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200",
                 )}
               >
                 {listName}

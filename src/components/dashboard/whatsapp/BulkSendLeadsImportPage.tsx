@@ -262,7 +262,7 @@ export function BulkSendLeadsImportPage() {
           <div className="flex items-start gap-4">
             <Link
               href={BULK_SEND_PATH}
-              className="mt-1 inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-3 py-2 text-sm text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
+              className="mt-1 inline-flex items-center gap-2 border border-zinc-700 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
             >
               <ArrowLeft className="size-4" aria-hidden />
               Retour
@@ -356,7 +356,7 @@ export function BulkSendLeadsImportPage() {
               type="button"
               onClick={selectAllFiltered}
               disabled={loading || filteredLeads.length === 0}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 border border-zinc-700 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-40"
             >
               <CheckSquare className="size-3.5" aria-hidden />
               Tout le filtre
@@ -365,7 +365,7 @@ export function BulkSendLeadsImportPage() {
               type="button"
               onClick={selectAll}
               disabled={loading || allLeads.length === 0}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 border border-zinc-700 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-40"
             >
               <CheckSquare className="size-3.5" aria-hidden />
               Tout sélectionner
@@ -374,7 +374,7 @@ export function BulkSendLeadsImportPage() {
               type="button"
               onClick={deselectAll}
               disabled={loading || selectedIds.size === 0}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs font-medium text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 border border-zinc-700 px-3 py-1.5 font-mono text-[10px] uppercase tracking-widest text-zinc-300 transition hover:bg-zinc-800 disabled:opacity-40"
             >
               <Square className="size-3.5" aria-hidden />
               Désélectionner
@@ -493,7 +493,7 @@ export function BulkSendLeadsImportPage() {
           <div className="flex items-center gap-2">
             <Link
               href={BULK_SEND_PATH}
-              className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+              className="border border-zinc-700 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-300 transition hover:bg-zinc-800"
             >
               Annuler
             </Link>
@@ -501,7 +501,7 @@ export function BulkSendLeadsImportPage() {
               type="button"
               onClick={handleImport}
               disabled={selectedPhonesCount === 0}
-              className="rounded-lg bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
+              className="border border-sky-500 bg-sky-600 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
             >
               Importer {selectedPhonesCount} numéro{selectedPhonesCount !== 1 ? "s" : ""} vers
               l&apos;envoi multiple

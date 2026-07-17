@@ -7,6 +7,12 @@ export type AdminProfile = {
   telephone: string;
   ville: string;
   avatarUrl: string;
+  titre: string;
+  dateNaissance: string;
+  fuseauHoraire: string;
+  adresse: string;
+  codePostal: string;
+  pays: string;
 };
 
 export type UpdateAdminProfilePayload = {
@@ -15,6 +21,12 @@ export type UpdateAdminProfilePayload = {
   telephone: string;
   ville: string;
   avatarUrl?: string;
+  titre?: string;
+  dateNaissance?: string;
+  fuseauHoraire?: string;
+  adresse?: string;
+  codePostal?: string;
+  pays?: string;
 };
 
 export type ChangePasswordPayload = {

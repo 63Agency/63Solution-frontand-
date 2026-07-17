@@ -612,7 +612,7 @@ export function FacturesDevisPage() {
                   ? NOUVELLE_FACTURE_HREF
                   : NOUVELLE_PROPOSITION_HREF
             }
-            className="inline-flex items-center justify-center gap-2 rounded-md border border-indigo-500 bg-indigo-600 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white transition hover:bg-indigo-500"
+            className="inline-flex items-center justify-center gap-2 border border-indigo-500 bg-indigo-600 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white transition hover:bg-indigo-500"
           >
             <Plus className="size-4" aria-hidden />
             {tab === "devis"
@@ -625,7 +625,7 @@ export function FacturesDevisPage() {
 
         {tab === "devis" ? (
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-            <section className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-5 lg:col-span-12 min-h-[200px]">
+            <section className="min-h-[200px] lg:col-span-12">
               <div className="mb-4">
                 <h3 className="text-base font-medium text-white">Devis récents</h3>
                 <p className="text-xs uppercase tracking-widest text-zinc-500">
@@ -803,7 +803,7 @@ export function FacturesDevisPage() {
           </div>
         ) : tab === "factures" ? (
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-            <section className="rounded-xl border border-zinc-800 bg-zinc-900/70 p-5 lg:col-span-12 min-h-[200px]">
+            <section className="min-h-[200px] lg:col-span-12">
               <div className="mb-4">
                 <h3 className="text-base font-medium text-white">Factures récentes</h3>
                 <p className="text-xs uppercase tracking-widest text-zinc-500">
@@ -985,7 +985,7 @@ export function FacturesDevisPage() {
                 type="button"
                 onClick={() => setPendingDelete(null)}
                 disabled={deletingId === pendingDelete.row.id}
-                className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="border border-zinc-700 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-200 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Annuler
               </button>
@@ -997,7 +997,7 @@ export function FacturesDevisPage() {
                     : handleDeleteDevis(pendingDelete.row)
                 }
                 disabled={deletingId === pendingDelete.row.id}
-                className="rounded-md border border-red-700 bg-red-700/80 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+                className="border border-red-700 bg-red-700/80 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {deletingId === pendingDelete.row.id ? "Suppression..." : "Supprimer"}
               </button>
@@ -1214,7 +1214,7 @@ export function FacturesDevisPage() {
                   type="button"
                   onClick={closeTransferModal}
                   disabled={transferringId === pendingTransfer.id}
-                  className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="border border-zinc-700 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-200 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   Annuler
                 </button>
@@ -1258,7 +1258,7 @@ export function FacturesDevisPage() {
                     !transferPriceValidated ||
                     transferDetailLoading
                   }
-                  className="rounded-md border border-indigo-700 bg-indigo-700/80 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
+                  className="border border-indigo-700 bg-indigo-700/80 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white transition hover:bg-indigo-600 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {transferringId === pendingTransfer.id
                     ? "Transfert..."
@@ -1315,7 +1315,7 @@ export function FacturesDevisPage() {
                 type="button"
                 onClick={() => setPendingSend(null)}
                 disabled={sendingId === pendingSend.row.id}
-                className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="border border-zinc-700 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-200 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Annuler
               </button>
@@ -1323,7 +1323,7 @@ export function FacturesDevisPage() {
                 type="button"
                 onClick={handleSendDocumentEmail}
                 disabled={sendingId === pendingSend.row.id}
-                className="rounded-md border border-emerald-700 bg-emerald-700/80 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                className="border border-emerald-700 bg-emerald-700/80 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {sendingId === pendingSend.row.id ? "Envoi..." : "Envoyer"}
               </button>

@@ -19,6 +19,12 @@ type ProfileExtensions = Record<
     telephone?: string;
     ville?: string;
     avatarUrl?: string;
+    titre?: string;
+    dateNaissance?: string;
+    fuseauHoraire?: string;
+    adresse?: string;
+    codePostal?: string;
+    pays?: string;
   }
 >;
 
@@ -114,6 +120,15 @@ export async function fetchAdminProfile(): Promise<AdminProfile> {
     telephone: String(u.telephone ?? u.phone ?? ext?.telephone ?? "").trim(),
     ville: String(u.ville ?? u.city ?? ext?.ville ?? "").trim(),
     avatarUrl: apiAvatar || ext?.avatarUrl?.trim() || "",
+    titre: String(ext?.titre ?? "M.").trim() || "M.",
+    dateNaissance: String(ext?.dateNaissance ?? "").trim(),
+    fuseauHoraire: String(
+      ext?.fuseauHoraire ??
+        "+01:00 Western European Time - Casablanca, Rabat, Fes, Tangier",
+    ).trim(),
+    adresse: String(ext?.adresse ?? "").trim(),
+    codePostal: String(ext?.codePostal ?? "").trim(),
+    pays: String(ext?.pays ?? "Morocco").trim() || "Morocco",
   };
 }
 
@@ -124,6 +139,12 @@ export async function updateAdminProfile(
   const current = await fetchAdminProfile();
   const avatarUrl =
     payload.avatarUrl !== undefined ? payload.avatarUrl.trim() : current.avatarUrl;
+  const titre = (payload.titre ?? current.titre).trim() || "M.";
+  const dateNaissance = (payload.dateNaissance ?? current.dateNaissance).trim();
+  const fuseauHoraire = (payload.fuseauHoraire ?? current.fuseauHoraire).trim();
+  const adresse = (payload.adresse ?? current.adresse).trim();
+  const codePostal = (payload.codePostal ?? current.codePostal).trim();
+  const pays = (payload.pays ?? current.pays).trim() || "Morocco";
 
   const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
   if (base) {
@@ -161,6 +182,12 @@ export async function updateAdminProfile(
           telephone: String(row.telephone ?? body.telephone).trim(),
           ville: String(row.ville ?? body.ville).trim(),
           avatarUrl: pickAvatarUrl(row) || avatarUrl,
+          titre,
+          dateNaissance,
+          fuseauHoraire,
+          adresse,
+          codePostal,
+          pays,
         };
         writeProfileExtensions(ext);
         return {
@@ -172,6 +199,12 @@ export async function updateAdminProfile(
           telephone: ext[current.id]!.telephone ?? "",
           ville: ext[current.id]!.ville ?? "",
           avatarUrl: ext[current.id]!.avatarUrl ?? "",
+          titre,
+          dateNaissance,
+          fuseauHoraire,
+          adresse,
+          codePostal,
+          pays,
         };
       }
     }
@@ -184,6 +217,12 @@ export async function updateAdminProfile(
     telephone: payload.telephone.trim(),
     ville: payload.ville.trim(),
     avatarUrl,
+    titre,
+    dateNaissance,
+    fuseauHoraire,
+    adresse,
+    codePostal,
+    pays,
   };
   writeProfileExtensions(ext);
   return {
@@ -193,6 +232,12 @@ export async function updateAdminProfile(
     telephone: payload.telephone.trim(),
     ville: payload.ville.trim(),
     avatarUrl,
+    titre,
+    dateNaissance,
+    fuseauHoraire,
+    adresse,
+    codePostal,
+    pays,
   };
 }
 

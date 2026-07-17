@@ -233,7 +233,7 @@ export function PropositionsSection() {
   return (
     <>
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-        <section className="min-h-[200px] rounded-xl border border-zinc-800 bg-zinc-900/70 p-5 lg:col-span-12">
+        <section className="min-h-[200px] lg:col-span-12">
           <div className="mb-4">
             <h3 className="text-base font-medium text-white">Propositions récentes</h3>
             <p className="text-xs uppercase tracking-widest text-zinc-500">
@@ -420,7 +420,7 @@ export function PropositionsSection() {
                 type="button"
                 onClick={() => setPendingDelete(null)}
                 disabled={deletingId === pendingDelete.id}
-                className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="border border-zinc-700 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-200 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Annuler
               </button>
@@ -428,7 +428,7 @@ export function PropositionsSection() {
                 type="button"
                 onClick={() => void handleConfirmDelete()}
                 disabled={deletingId === pendingDelete.id}
-                className="rounded-md border border-red-700 bg-red-700/80 px-4 py-2 text-sm font-medium text-white hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
+                className="border border-red-700 bg-red-700/80 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white transition hover:bg-red-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {deletingId === pendingDelete.id ? "Suppression..." : "Supprimer"}
               </button>
@@ -477,7 +477,7 @@ export function PropositionsSection() {
                 type="button"
                 onClick={() => setPendingSend(null)}
                 disabled={sendingId === pendingSend.id}
-                className="rounded-md border border-zinc-700 px-4 py-2 text-sm text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
+                className="border border-zinc-700 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-200 transition hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 Annuler
               </button>
@@ -485,7 +485,7 @@ export function PropositionsSection() {
                 type="button"
                 onClick={() => void handleSendEmail()}
                 disabled={sendingId === pendingSend.id}
-                className="rounded-md border border-emerald-700 bg-emerald-700/80 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+                className="border border-emerald-700 bg-emerald-700/80 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white transition hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {sendingId === pendingSend.id ? "Envoi..." : "Envoyer"}
               </button>

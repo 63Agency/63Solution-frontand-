@@ -1,10 +1,43 @@
 "use client";
 
-import { useState } from "react";
-import { Eye, EyeOff, Loader2 } from "lucide-react";
+import { useMemo, useState } from "react";
+import { Check, Loader2, X } from "lucide-react";
 import { toast } from "sonner";
 import { changeAdminPassword } from "@/lib/settings/backend-settings";
-import { btnPrimary, fieldClass, labelClass } from "./settings-ui";
+import { cn } from "@/src/lib/utils";
+
+const fieldClass =
+  "mt-1.5 w-full rounded-lg border border-zinc-700 bg-transparent px-3.5 py-2.5 text-sm text-zinc-100 outline-none transition placeholder:text-zinc-600 focus:border-zinc-500";
+
+const labelClass = "block text-sm font-medium text-zinc-400";
+
+const PASSWORD_RULES = [
+  {
+    id: "length",
+    label: "Entre 8 et 16 caractères",
+    test: (value: string) => value.length >= 8 && value.length <= 16,
+  },
+  {
+    id: "upper",
+    label: "Au moins une lettre majuscule (A-Z)",
+    test: (value: string) => /[A-Z]/.test(value),
+  },
+  {
+    id: "lower",
+    label: "Au moins une lettre minuscule (a-z)",
+    test: (value: string) => /[a-z]/.test(value),
+  },
+  {
+    id: "number",
+    label: "Au moins un chiffre (0-9)",
+    test: (value: string) => /[0-9]/.test(value),
+  },
+  {
+    id: "special",
+    label: "Au moins un caractère spécial (!@#$%…)",
+    test: (value: string) => /[^A-Za-z0-9]/.test(value),
+  },
+] as const;
 
 function PasswordInput({
   id,
@@ -12,37 +45,36 @@ function PasswordInput({
   value,
   onChange,
   autoComplete,
+  placeholder,
+  onFocus,
+  onBlur,
 }: {
   id: string;
   label: string;
   value: string;
   onChange: (v: string) => void;
   autoComplete: string;
+  placeholder: string;
+  onFocus?: () => void;
+  onBlur?: () => void;
 }) {
-  const [visible, setVisible] = useState(false);
   return (
-    <div>
+    <div className="min-w-0">
       <label className={labelClass} htmlFor={id}>
         {label}
       </label>
-      <div className="relative mt-1.5">
-        <input
-          id={id}
-          type={visible ? "text" : "password"}
-          className={`${fieldClass} pr-10`}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          autoComplete={autoComplete}
-        />
-        <button
-          type="button"
-          onClick={() => setVisible((v) => !v)}
-          className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1.5 text-zinc-500 hover:text-zinc-300"
-          aria-label={visible ? "Masquer le mot de passe" : "Afficher le mot de passe"}
-        >
-          {visible ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
-        </button>
-      </div>
+      <input
+        id={id}
+        type="password"
+        className={fieldClass}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        autoComplete={autoComplete}
+        placeholder={placeholder}
+        maxLength={id === "pwd-new" || id === "pwd-confirm" ? 16 : undefined}
+      />
     </div>
   );
 }
@@ -52,6 +84,18 @@ export function SettingsPasswordSection() {
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [saving, setSaving] = useState(false);
+  const [showRules, setShowRules] = useState(false);
+
+  const ruleResults = useMemo(
+    () =>
+      PASSWORD_RULES.map((rule) => ({
+        ...rule,
+        ok: rule.test(newPassword),
+      })),
+    [newPassword],
+  );
+
+  const allRulesOk = ruleResults.every((rule) => rule.ok);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,8 +103,9 @@ export function SettingsPasswordSection() {
       toast.error("Indique ton mot de passe actuel.");
       return;
     }
-    if (newPassword.length < 8) {
-      toast.error("Le nouveau mot de passe doit contenir au moins 8 caractères.");
+    if (!allRulesOk) {
+      setShowRules(true);
+      toast.error("Le nouveau mot de passe ne respecte pas toutes les conditions.");
       return;
     }
     if (newPassword !== confirmPassword) {
@@ -79,6 +124,7 @@ export function SettingsPasswordSection() {
       setCurrentPassword("");
       setNewPassword("");
       setConfirmPassword("");
+      setShowRules(false);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Changement impossible.");
     } finally {
@@ -87,59 +133,69 @@ export function SettingsPasswordSection() {
   };
 
   return (
-    <form onSubmit={(e) => void handleSubmit(e)}>
-      <p className="mb-6 text-sm text-zinc-400">
-        Mot de passe fort recommandé — 8 caractères minimum.
-      </p>
-      <div className="grid gap-5 sm:grid-cols-2">
-        <div className="sm:col-span-2">
-          <PasswordInput
-            id="pwd-current"
-            label="Mot de passe actuel"
-            value={currentPassword}
-            onChange={setCurrentPassword}
-            autoComplete="current-password"
-          />
-        </div>
-        <div>
+    <form onSubmit={(e) => void handleSubmit(e)} className="mx-auto max-w-5xl">
+      <div className="grid gap-5 md:grid-cols-3">
+        <PasswordInput
+          id="pwd-current"
+          label="Mot de passe actuel"
+          value={currentPassword}
+          onChange={setCurrentPassword}
+          autoComplete="current-password"
+          placeholder="Entrez votre mot de passe actuel"
+        />
+        <div className="relative min-w-0">
           <PasswordInput
             id="pwd-new"
             label="Nouveau mot de passe"
             value={newPassword}
-            onChange={setNewPassword}
+            onChange={(value) => {
+              setNewPassword(value);
+              setShowRules(true);
+            }}
+            onFocus={() => setShowRules(true)}
             autoComplete="new-password"
+            placeholder="Nouveau mot de passe"
           />
+
+          {showRules ? (
+            <ul className="mt-2 space-y-1.5">
+              {ruleResults.map((rule) => (
+                <li
+                  key={rule.id}
+                  className={cn(
+                    "flex items-start gap-2 text-xs",
+                    rule.ok ? "text-emerald-400" : "text-zinc-500",
+                  )}
+                >
+                  {rule.ok ? (
+                    <Check className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                  ) : (
+                    <X className="mt-0.5 size-3.5 shrink-0" aria-hidden />
+                  )}
+                  <span>{rule.label}</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
         </div>
-        <div>
-          <PasswordInput
-            id="pwd-confirm"
-            label="Confirmer le mot de passe"
-            value={confirmPassword}
-            onChange={setConfirmPassword}
-            autoComplete="new-password"
-          />
-        </div>
+        <PasswordInput
+          id="pwd-confirm"
+          label="Confirmer le mot de passe"
+          value={confirmPassword}
+          onChange={setConfirmPassword}
+          autoComplete="new-password"
+          placeholder="Confirmer le nouveau mot de passe"
+        />
       </div>
 
-      <ul className="mt-5 flex flex-wrap gap-4 text-xs text-zinc-500">
-        <li className={newPassword.length >= 8 ? "text-emerald-400" : ""}>
-          • 8 caractères min.
-        </li>
-        <li
-          className={
-            newPassword === confirmPassword && confirmPassword.length > 0
-              ? "text-emerald-400"
-              : ""
-          }
+      <div className="mt-8 flex justify-end">
+        <button
+          type="submit"
+          disabled={saving}
+          className="inline-flex items-center justify-center gap-2 border border-indigo-500 bg-indigo-600 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white transition hover:bg-indigo-500 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          • Confirmation identique
-        </li>
-      </ul>
-
-      <div className="mt-8 border-t border-zinc-800 pt-6">
-        <button type="submit" disabled={saving} className={btnPrimary}>
           {saving ? <Loader2 className="size-4 animate-spin" aria-hidden /> : null}
-          Mettre à jour
+          Modifier le mot de passe
         </button>
       </div>
     </form>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Loader2, Trash2, UserPlus } from "lucide-react";
+import { Loader2, Trash2, UserPlus, X } from "lucide-react";
 import { toast } from "sonner";
 import { canManageTeamUsers, shouldShowTeamUserInList } from "@/lib/auth/roles";
 import {
@@ -11,7 +11,8 @@ import {
 } from "@/lib/settings/backend-settings";
 import type { AssignableTeamUserRole, TeamUser } from "@/lib/settings/settings-types";
 import { fetchCurrentUser } from "@/lib/auth/backend-login";
-import { btnDanger, btnPrimary, fieldClass, labelClass } from "./settings-ui";
+import { btnPrimary, fieldClass, labelClass } from "./settings-ui";
+import { cn } from "@/src/lib/utils";
 
 const emptyForm = {
   prenom: "",
@@ -35,11 +36,12 @@ function formatDate(iso: string): string {
   }
 }
 
-type SettingsUsersSectionProps = {
-  onTeamChange?: (count: number) => void;
-};
+function roleBadge(role: TeamUser["role"]) {
+  if (role === "admin") return { label: "Administrateur", className: "text-indigo-300" };
+  return { label: "Admin WhatsApp", className: "text-emerald-300" };
+}
 
-export function SettingsUsersSection({ onTeamChange }: SettingsUsersSectionProps) {
+export function SettingsUsersSection() {
   const [canManage, setCanManage] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [users, setUsers] = useState<TeamUser[]>([]);
@@ -59,7 +61,7 @@ export function SettingsUsersSection({ onTeamChange }: SettingsUsersSectionProps
       const visible = list.filter((u) => shouldShowTeamUserInList(u, me.user.id));
       setUsers(visible);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Impossible de charger les utilisateurs.");
+      toast.error(e instanceof Error ? e.message : "Impossible de charger les comptes.");
       setUsers([]);
     } finally {
       setLoading(false);
@@ -69,12 +71,6 @@ export function SettingsUsersSection({ onTeamChange }: SettingsUsersSectionProps
   useEffect(() => {
     void load();
   }, [load]);
-
-  useEffect(() => {
-    if (!loading) {
-      onTeamChange?.(users.length);
-    }
-  }, [users.length, loading, onTeamChange]);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -93,7 +89,7 @@ export function SettingsUsersSection({ onTeamChange }: SettingsUsersSectionProps
       });
       setForm(emptyForm);
       setShowForm(false);
-      toast.success(`Utilisateur ${created.email} créé.`);
+      toast.success(`Compte ${created.email} créé.`);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Création impossible.");
     } finally {
@@ -102,12 +98,12 @@ export function SettingsUsersSection({ onTeamChange }: SettingsUsersSectionProps
   };
 
   const handleDelete = async (user: TeamUser) => {
-    if (!window.confirm(`Supprimer l'utilisateur ${user.email} ?`)) return;
+    if (!window.confirm(`Supprimer le compte ${user.email} ?`)) return;
     setDeletingId(user.id);
     try {
       await deleteTeamUser(user.id);
       setUsers((prev) => prev.filter((u) => u.id !== user.id));
-      toast.success("Utilisateur supprimé.");
+      toast.success("Compte supprimé.");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Suppression impossible.");
     } finally {
@@ -118,13 +114,13 @@ export function SettingsUsersSection({ onTeamChange }: SettingsUsersSectionProps
   if (!canManage && !loading) {
     return (
       <p className="py-8 text-sm text-zinc-400">
-        Seuls les administrateurs peuvent gérer les utilisateurs de l&apos;équipe.
+        Seuls les administrateurs peuvent gérer les comptes de l&apos;équipe.
       </p>
     );
   }
 
   return (
-    <div>
+    <div className="mx-auto max-w-6xl">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <p className="text-sm text-zinc-400">
           Comptes avec accès au dashboard 63 Agency.
@@ -134,14 +130,21 @@ export function SettingsUsersSection({ onTeamChange }: SettingsUsersSectionProps
           onClick={() => setShowForm((v) => !v)}
           className={btnPrimary}
         >
-          <UserPlus className="size-4" aria-hidden />
-          {showForm ? "Fermer" : "Nouvel utilisateur"}
+          {showForm ? (
+            <X className="size-4" aria-hidden />
+          ) : (
+            <UserPlus className="size-4" aria-hidden />
+          )}
+          {showForm ? "Fermer" : "Ajouter un membre"}
         </button>
       </div>
 
       {showForm ? (
-        <form onSubmit={(e) => void handleCreate(e)} className="mb-8">
-          <h3 className="text-sm font-medium text-white">Créer un compte</h3>
+        <form
+          onSubmit={(e) => void handleCreate(e)}
+          className="mb-8 rounded-xl border border-zinc-800 bg-zinc-900/40 p-5 md:p-6"
+        >
+          <h3 className="text-sm font-semibold text-white">Nouveau membre</h3>
           <div className="mt-5 grid gap-4 sm:grid-cols-2">
             <div>
               <label className={labelClass} htmlFor="user-prenom">
@@ -205,7 +208,6 @@ export function SettingsUsersSection({ onTeamChange }: SettingsUsersSectionProps
                 autoComplete="off"
               />
             </div>
-            
             <div>
               <label className={labelClass} htmlFor="user-password">
                 Mot de passe temporaire
@@ -246,7 +248,7 @@ export function SettingsUsersSection({ onTeamChange }: SettingsUsersSectionProps
                 setShowForm(false);
                 setForm(emptyForm);
               }}
-              className="rounded-lg border border-zinc-700 px-4 py-2 text-sm text-zinc-300 hover:bg-zinc-800"
+              className="border border-zinc-700 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-300 transition hover:bg-zinc-800"
             >
               Annuler
             </button>
@@ -256,71 +258,78 @@ export function SettingsUsersSection({ onTeamChange }: SettingsUsersSectionProps
               ) : (
                 <UserPlus className="size-4" aria-hidden />
               )}
-              Créer
+              Créer le compte
             </button>
           </div>
         </form>
       ) : null}
 
       {loading ? (
-        <div className="flex items-center gap-2 py-8 text-sm text-zinc-500">
+        <div className="flex items-center gap-2 py-12 text-sm text-zinc-500">
           <Loader2 className="size-4 animate-spin" aria-hidden />
-          Chargement…
+          Chargement des comptes…
         </div>
-      ) : users.length === 0 ? (
-        <p className="py-8 text-center text-sm text-zinc-500">
-          Aucun utilisateur. Clique sur « Nouvel utilisateur » pour commencer.
-        </p>
       ) : (
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[520px] border-collapse text-sm">
+        <div className="overflow-x-auto rounded-xl border border-zinc-800">
+          <table className="w-full min-w-[720px] border-collapse text-sm">
             <thead>
-              <tr className="border-b border-zinc-800 text-left text-[10px] uppercase tracking-widest text-zinc-500">
-                <th className="pb-3 pr-4 font-normal">Nom</th>
-                <th className="pb-3 pr-4 font-normal">E-mail</th>
-                <th className="pb-3 pr-4 font-normal">Rôle</th>
-                <th className="pb-3 pr-4 font-normal">Créé le</th>
-                <th className="pb-3 text-right font-normal">Actions</th>
+              <tr className="border-b border-zinc-800 bg-zinc-900/60 text-left text-xs text-zinc-500">
+                <th className="px-4 py-3 font-medium">Nom</th>
+                <th className="px-4 py-3 font-medium">E-mail</th>
+                <th className="px-4 py-3 font-medium">Téléphone</th>
+                <th className="px-4 py-3 font-medium">Ville</th>
+                <th className="px-4 py-3 font-medium">Rôle</th>
+                <th className="px-4 py-3 font-medium">Créé le</th>
+                <th className="px-4 py-3 text-right font-medium">Actions</th>
               </tr>
             </thead>
-            <tbody>
-              {users.map((user) => (
-                <tr key={user.id} className="border-b border-zinc-800/80 text-zinc-300">
-                  <td className="py-3 pr-4 font-medium text-white">
-                    {[user.prenom, user.nom].filter(Boolean).join(" ") || "—"}
-                  </td>
-                  <td className="py-3 pr-4 font-mono text-xs">{user.email}</td>
-                  <td className="py-3 pr-4">
-                    <span
-                      className={
-                        user.role === "admin"
-                          ? "text-indigo-300"
-                          : user.role === "admin_whatsapp"
-                            ? "text-violet-300"
-                            : "text-zinc-400"
-                      }
-                    >
-                      {user.role === "admin" ? "Admin" : "Admin WhatsApp"}
-                    </span>
-                  </td>
-                  <td className="py-3 pr-4 text-zinc-500">{formatDate(user.createdAt)}</td>
-                  <td className="py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => void handleDelete(user)}
-                      disabled={deletingId === user.id}
-                      className={btnDanger}
-                    >
-                      {deletingId === user.id ? (
-                        <Loader2 className="size-3.5 animate-spin" aria-hidden />
-                      ) : (
-                        <Trash2 className="size-3.5" aria-hidden />
-                      )}
-                      Supprimer
-                    </button>
+            <tbody className="divide-y divide-zinc-800/80">
+              {users.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-12 text-center text-zinc-500">
+                    Aucun compte équipe. Cliquez sur « Ajouter un membre ».
                   </td>
                 </tr>
-              ))}
+              ) : (
+                users.map((user) => {
+                  const badge = roleBadge(user.role);
+                  return (
+                    <tr key={user.id} className="text-zinc-300 transition hover:bg-zinc-900/40">
+                      <td className="px-4 py-3.5 font-medium text-white">
+                        {[user.prenom, user.nom].filter(Boolean).join(" ") || "—"}
+                      </td>
+                      <td className="px-4 py-3.5 font-mono text-xs">{user.email}</td>
+                      <td className="px-4 py-3.5 text-zinc-400">
+                        {user.telephone || "—"}
+                      </td>
+                      <td className="px-4 py-3.5 text-zinc-400">{user.ville || "—"}</td>
+                      <td className="px-4 py-3.5">
+                        <span className={cn("text-sm font-medium", badge.className)}>
+                          {badge.label}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5 text-zinc-500">
+                        {formatDate(user.createdAt)}
+                      </td>
+                      <td className="px-4 py-3.5 text-right">
+                        <button
+                          type="button"
+                          onClick={() => void handleDelete(user)}
+                          disabled={deletingId === user.id}
+                          className="inline-flex items-center gap-1.5 border border-red-700/60 px-2.5 py-1.5 font-mono text-[10px] uppercase tracking-widest text-red-300 transition hover:bg-red-900/30 disabled:opacity-50"
+                        >
+                          {deletingId === user.id ? (
+                            <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                          ) : (
+                            <Trash2 className="size-3.5" aria-hidden />
+                          )}
+                          Supprimer
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
             </tbody>
           </table>
         </div>
