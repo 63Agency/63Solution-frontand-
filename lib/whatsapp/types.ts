@@ -30,6 +30,8 @@ export type WhatsAppMessage = {
   direction: WhatsAppMessageDirection;
   body: string;
   type: WhatsAppMessageType;
+  /** Meta media id when type is "audio" (also stored in body). */
+  mediaId?: string | null;
   status: WhatsAppMessageStatus;
   /** Id message Meta (wamid…) — le backend peut encore exposer `watiMessageId`. */
   metaMessageId?: string;

@@ -120,6 +120,12 @@ function parseMessage(row: unknown): WhatsAppMessage | null {
     direction,
     body,
     type,
+    mediaId:
+      typeof r.mediaId === "string" && r.mediaId.trim()
+        ? r.mediaId.trim()
+        : type === "audio" && body && !body.startsWith("[")
+          ? body
+          : null,
     status,
     metaMessageId:
       typeof r.metaMessageId === "string"
@@ -163,6 +169,67 @@ export async function fetchWhatsAppConversations(): Promise<WhatsAppConversation
   return list
     .map((row) => parseConversation(row))
     .filter((v): v is WhatsAppConversation => v !== null);
+}
+
+/** Resolve Meta media id → temporary download URL (+ mimeType). */
+export async function fetchWhatsAppMediaUrl(mediaId: string): Promise<{
+  url: string;
+  mimeType: string | null;
+  mediaId: string;
+}> {
+  const base = getApiBaseUrl();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL manquante.");
+  const id = mediaId.trim();
+  if (!id) throw new Error("mediaId requis.");
+
+  const res = await fetch(
+    `${base}/whatsapp/media/${encodeURIComponent(id)}`,
+    {
+      method: "GET",
+      headers: buildAuthHeaders(),
+      credentials: "include",
+    },
+  );
+
+  if (!res.ok) return parseApiError(res, `GET /whatsapp/media/${id}`);
+
+  const raw = (await res.json().catch(() => null)) as Record<string, unknown> | null;
+  const url = typeof raw?.url === "string" ? raw.url.trim() : "";
+  if (!url) throw new Error("URL média manquante.");
+
+  return {
+    url,
+    mimeType: typeof raw?.mimeType === "string" ? raw.mimeType : null,
+    mediaId: typeof raw?.mediaId === "string" ? raw.mediaId : id,
+  };
+}
+
+/**
+ * Download media via authenticated proxy (Meta CDN URL needs Bearer — not
+ * usable as bare <audio src>). Returns an object URL — caller must revoke it.
+ */
+export async function fetchWhatsAppMediaObjectUrl(mediaId: string): Promise<string> {
+  const base = getApiBaseUrl();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL manquante.");
+  const id = mediaId.trim();
+  if (!id) throw new Error("mediaId requis.");
+
+  // Resolve URL first (as required), then proxy-download for browser playback.
+  await fetchWhatsAppMediaUrl(id);
+
+  const res = await fetch(
+    `${base}/whatsapp/media/${encodeURIComponent(id)}/content`,
+    {
+      method: "GET",
+      headers: buildAuthHeaders(),
+      credentials: "include",
+    },
+  );
+
+  if (!res.ok) return parseApiError(res, `GET /whatsapp/media/${id}/content`);
+
+  const blob = await res.blob();
+  return URL.createObjectURL(blob);
 }
 
 export async function fetchWhatsAppConversation(
