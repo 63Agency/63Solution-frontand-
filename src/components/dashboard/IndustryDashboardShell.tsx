@@ -353,11 +353,10 @@ export function IndustryDashboardShell({
         ) : null}
 
         <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-          <DashboardTopBar />
+          {pathname === WHATSAPP_BASE ? null : <DashboardTopBar />}
           <main
             className={
-              pathname.startsWith("/dashboard/conversations") &&
-              !pathname.startsWith("/dashboard/conversations/envoi-multiple")
+              pathname === WHATSAPP_BASE
                 ? "flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-950"
                 : "min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-zinc-950"
             }

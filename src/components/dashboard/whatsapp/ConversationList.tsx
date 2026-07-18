@@ -1,14 +1,16 @@
 "use client";
 
-import { MessageCircle, Search } from "lucide-react";
+import { useMemo, useState } from "react";
+import { MoreVertical, Plus, Search, SquarePlus } from "lucide-react";
 import type { WhatsAppConversation } from "@/lib/whatsapp/types";
 import { cn } from "@/src/lib/utils";
 import { ConversationAvatar } from "./ConversationAvatar";
 import {
   conversationDisplayName,
-  formatChatTime,
-  formatWhatsAppPhone,
+  formatChatListTime,
 } from "./whatsapp-utils";
+
+type FilterId = "all" | "unread" | "favorites" | "groups";
 
 type Props = {
   conversations: WhatsAppConversation[];
@@ -19,14 +21,31 @@ type Props = {
   loading: boolean;
 };
 
+const WA = {
+  bg: "#111b21",
+  panel: "#111b21",
+  header: "#202c33",
+  search: "#202c33",
+  hover: "#202c33",
+  active: "#2a3942",
+  border: "#222d34",
+  text: "#e9edef",
+  muted: "#8696a0",
+  green: "#00a884",
+  greenBadge: "#25d366",
+  filterBorder: "#3b4a54",
+} as const;
+
 function ConversationSkeleton() {
   return (
-    <li className="flex gap-3 border-b border-zinc-800/60 px-4 py-3.5">
-      <div className="size-11 shrink-0 animate-pulse rounded-full bg-zinc-800" />
-      <div className="min-w-0 flex-1 space-y-2">
-        <div className="h-3.5 w-2/3 animate-pulse rounded bg-zinc-800" />
-        <div className="h-3 w-1/2 animate-pulse rounded bg-zinc-800/80" />
-        <div className="h-3 w-full animate-pulse rounded bg-zinc-800/60" />
+    <li className="flex items-center gap-3 px-3 py-3">
+      <div className="size-[49px] shrink-0 animate-pulse rounded-full bg-[#2a3942]" />
+      <div className="min-w-0 flex-1 space-y-2 border-b border-[#222d34] pb-3">
+        <div className="flex justify-between gap-2">
+          <div className="h-3.5 w-1/2 animate-pulse rounded bg-[#2a3942]" />
+          <div className="h-3 w-10 animate-pulse rounded bg-[#2a3942]" />
+        </div>
+        <div className="h-3 w-3/4 animate-pulse rounded bg-[#2a3942]/80" />
       </div>
     </li>
   );
@@ -40,76 +59,158 @@ export function ConversationList({
   onSelect,
   loading,
 }: Props) {
-  const q = search.trim().toLowerCase();
-  const filtered = conversations.filter((c) => {
-    if (!q) return true;
-    const name = conversationDisplayName(c.contactName, c.phoneNumber).toLowerCase();
-    const phone = c.phoneNumber.toLowerCase();
-    const preview = (c.lastMessageText ?? "").toLowerCase();
-    return name.includes(q) || phone.includes(q) || preview.includes(q);
-  });
+  const [filter, setFilter] = useState<FilterId>("all");
 
-  const totalUnread = conversations.reduce((sum, c) => sum + (c.unreadCount > 0 ? c.unreadCount : 0), 0);
+  const unreadTotal = useMemo(
+    () => conversations.reduce((sum, c) => sum + Math.max(0, c.unreadCount), 0),
+    [conversations],
+  );
+
+  const q = search.trim().toLowerCase();
+
+  const filtered = useMemo(() => {
+    let list = conversations;
+
+    if (filter === "unread") {
+      list = list.filter((c) => c.unreadCount > 0);
+    } else if (filter === "favorites" || filter === "groups") {
+      list = [];
+    }
+
+    if (!q) return list;
+    return list.filter((c) => {
+      const name = conversationDisplayName(c.contactName, c.phoneNumber).toLowerCase();
+      const phone = c.phoneNumber.toLowerCase();
+      const preview = (c.lastMessageText ?? "").toLowerCase();
+      return name.includes(q) || phone.includes(q) || preview.includes(q);
+    });
+  }, [conversations, filter, q]);
+
+  const filters: { id: FilterId; label: string; count?: number }[] = [
+    { id: "all", label: "Toutes" },
+    { id: "unread", label: "Non lues", count: unreadTotal > 0 ? unreadTotal : undefined },
+    { id: "favorites", label: "Favoris" },
+    { id: "groups", label: "Groupes" },
+  ];
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-zinc-900/50 md:rounded-xl md:border md:border-zinc-800">
-      <div className="shrink-0 border-b border-zinc-800 bg-zinc-950/80 px-4 py-3.5">
-        <div className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2.5">
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-emerald-600/15 ring-1 ring-emerald-500/25">
-              <MessageCircle className="size-4 text-emerald-400" aria-hidden />
-            </div>
-            <div className="min-w-0">
-              <h2 className="text-sm font-semibold tracking-tight text-zinc-100">Conversations</h2>
-              <p className="truncate text-[11px] text-zinc-500">
-                {loading
-                  ? "Chargement…"
-                  : `${filtered.length} discussion${filtered.length !== 1 ? "s" : ""}`}
-              </p>
-            </div>
+    <div
+      className="flex h-full min-h-0 flex-col overflow-hidden"
+      style={{ backgroundColor: WA.bg, color: WA.text }}
+    >
+      {/* Header */}
+      <div className="shrink-0 px-4 pb-2 pt-3" style={{ backgroundColor: WA.panel }}>
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-[22px] font-bold leading-none tracking-tight" style={{ color: WA.text }}>
+            WhatsApp
+          </h2>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-white/5"
+              aria-label="Nouvelle discussion"
+            >
+              <SquarePlus className="size-[22px]" style={{ color: WA.text }} strokeWidth={1.75} />
+            </button>
+            <button
+              type="button"
+              className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-white/5"
+              aria-label="Menu"
+            >
+              <MoreVertical className="size-[22px]" style={{ color: WA.text }} strokeWidth={1.75} />
+            </button>
           </div>
-          {totalUnread > 0 ? (
-            <span className="shrink-0 rounded-full bg-emerald-600 px-2 py-0.5 text-[10px] font-bold text-white">
-              {totalUnread > 99 ? "99+" : totalUnread} non lu{totalUnread > 1 ? "s" : ""}
-            </span>
-          ) : null}
         </div>
-        <div className="relative mt-3">
+
+        {/* Search */}
+        <div className="relative">
           <Search
-            className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500"
+            className="pointer-events-none absolute left-3.5 top-1/2 size-[18px] -translate-y-1/2"
+            style={{ color: WA.muted }}
+            strokeWidth={2}
             aria-hidden
           />
           <input
             type="search"
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
-            placeholder="Rechercher nom, numéro, message…"
-            className="w-full rounded-xl border border-zinc-700/80 bg-zinc-950/90 py-2.5 pl-9 pr-3 text-sm text-zinc-100 shadow-inner placeholder:text-zinc-600 focus:border-emerald-600/80 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+            placeholder="Rechercher ou démarrer une discussion"
+            className="w-full rounded-lg py-[9px] pl-11 pr-3 text-[14px] outline-none placeholder:text-[#8696a0]"
+            style={{
+              backgroundColor: WA.search,
+              color: WA.text,
+            }}
           />
+        </div>
+
+        {/* Filter pills */}
+        <div className="mt-2.5 flex items-center gap-2 overflow-x-auto pb-0.5 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {filters.map((f) => {
+            const active = filter === f.id;
+            return (
+              <button
+                key={f.id}
+                type="button"
+                onClick={() => setFilter(f.id)}
+                className={cn(
+                  "shrink-0 rounded-full px-3 py-[6px] text-[14px] leading-none transition-colors",
+                  active ? "font-medium" : "border",
+                )}
+                style={
+                  active
+                    ? { backgroundColor: "#182229", color: WA.green, border: "1px solid transparent" }
+                    : {
+                        backgroundColor: "transparent",
+                        color: WA.muted,
+                        borderColor: WA.filterBorder,
+                      }
+                }
+              >
+                {f.label}
+                {f.count != null ? (
+                  <span className="ml-1.5 tabular-nums">{f.count > 99 ? "99+" : f.count}</span>
+                ) : null}
+              </button>
+            );
+          })}
+          <button
+            type="button"
+            className="flex size-8 shrink-0 items-center justify-center rounded-full border transition-colors hover:bg-white/5"
+            style={{ borderColor: WA.filterBorder, color: WA.muted }}
+            aria-label="Plus de filtres"
+          >
+            <Plus className="size-4" strokeWidth={2} />
+          </button>
         </div>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+      {/* Chat list */}
+      <div className="wa-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
         {loading && filtered.length === 0 ? (
           <ul aria-busy="true" aria-label="Chargement des conversations">
-            {Array.from({ length: 6 }).map((_, i) => (
+            {Array.from({ length: 8 }).map((_, i) => (
               <ConversationSkeleton key={i} />
             ))}
           </ul>
         ) : null}
 
         {!loading && filtered.length === 0 ? (
-          <div className="flex flex-col items-center px-6 py-14 text-center">
-            <div className="flex size-14 items-center justify-center rounded-2xl bg-zinc-800/80 ring-1 ring-zinc-700/50">
-              <MessageCircle className="size-7 text-zinc-500" aria-hidden />
-            </div>
-            <p className="mt-4 text-sm font-medium text-zinc-300">
-              {q ? "Aucun résultat" : "Aucune conversation"}
+          <div className="flex flex-col items-center px-8 py-16 text-center">
+            <p className="text-[16px] font-medium" style={{ color: WA.text }}>
+              {q
+                ? "Aucun résultat"
+                : filter === "unread"
+                  ? "Aucune discussion non lue"
+                  : filter === "favorites"
+                    ? "Aucun favori"
+                    : filter === "groups"
+                      ? "Aucun groupe"
+                      : "Aucune conversation"}
             </p>
-            <p className="mt-1.5 max-w-[240px] text-xs leading-relaxed text-zinc-500">
+            <p className="mt-2 max-w-[260px] text-[14px] leading-relaxed" style={{ color: WA.muted }}>
               {q
                 ? "Essayez un autre nom, numéro ou extrait de message."
-                : "Les leads apparaîtront ici après le premier message WhatsApp (webhook Meta)."}
+                : "Les conversations apparaîtront ici après le premier message WhatsApp."}
             </p>
           </div>
         ) : null}
@@ -120,57 +221,73 @@ export function ConversationList({
               const active = c.id === selectedId;
               const unread = c.unreadCount > 0;
               const title = conversationDisplayName(c.contactName, c.phoneNumber);
-              const preview = c.lastMessageText?.trim() || "—";
+              const preview = c.lastMessageText?.trim() || "\u00A0";
 
               return (
                 <li key={c.id}>
                   <button
                     type="button"
                     onClick={() => onSelect(c.id)}
-                    className={cn(
-                      "flex w-full gap-3 border-b border-zinc-800/50 px-4 py-3.5 text-left transition-colors",
-                      active
-                        ? "border-l-2 border-l-emerald-500 bg-emerald-950/25 pl-[14px]"
-                        : "border-l-2 border-l-transparent hover:bg-zinc-800/40",
-                    )}
+                    className="group flex w-full items-stretch gap-0 text-left transition-colors"
+                    style={{
+                      backgroundColor: active ? WA.active : "transparent",
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!active) e.currentTarget.style.backgroundColor = WA.hover;
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!active) e.currentTarget.style.backgroundColor = "transparent";
+                    }}
                   >
-                    <ConversationAvatar seed={c.id} label={title} />
-                    <div className="min-w-0 flex-1">
+                    <div className="flex shrink-0 items-center pl-3 pr-3.5 py-2.5">
+                      <ConversationAvatar
+                        seed={c.id}
+                        label={title}
+                        className="size-[49px] text-[18px]"
+                      />
+                    </div>
+
+                    <div
+                      className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 py-3 pr-3"
+                      style={{ borderBottom: `1px solid ${WA.border}` }}
+                    >
                       <div className="flex items-baseline justify-between gap-2">
                         <span
-                          className={cn(
-                            "truncate text-[15px]",
-                            unread ? "font-semibold text-zinc-50" : "font-medium text-zinc-200",
-                          )}
+                          className="truncate text-[17px] leading-tight"
+                          style={{
+                            color: WA.text,
+                            fontWeight: unread ? 500 : 400,
+                          }}
                         >
                           {title}
                         </span>
                         <span
-                          className={cn(
-                            "shrink-0 text-[11px]",
-                            unread ? "font-medium text-emerald-400" : "text-zinc-500",
-                          )}
+                          className="shrink-0 text-[12px] leading-none"
+                          style={{
+                            color: unread ? WA.green : WA.muted,
+                          }}
                         >
-                          {formatChatTime(c.lastMessageAt)}
+                          {formatChatListTime(c.lastMessageAt)}
                         </span>
                       </div>
-                      <p className="truncate text-[11px] text-zinc-600">
-                        {formatWhatsAppPhone(c.phoneNumber)}
-                      </p>
-                      <div className="mt-1 flex items-center justify-between gap-2">
+
+                      <div className="flex items-center justify-between gap-2">
                         <p
-                          className={cn(
-                            "truncate text-sm",
-                            unread ? "font-medium text-zinc-300" : "text-zinc-500",
-                          )}
+                          className="truncate text-[14px] leading-snug"
+                          style={{ color: WA.muted }}
                         >
                           {preview}
                         </p>
-                        {unread ? (
-                          <span className="flex min-w-5 shrink-0 items-center justify-center rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-white">
-                            {c.unreadCount > 9 ? "9+" : c.unreadCount}
-                          </span>
-                        ) : null}
+                        <div className="flex shrink-0 items-center gap-1.5">
+                          {unread ? (
+                            <span
+                              className="flex min-w-[20px] items-center justify-center rounded-full px-[5px] py-[2px] text-[12px] font-medium leading-none text-[#111b21]"
+                              style={{ backgroundColor: WA.greenBadge }}
+                            >
+                              {c.unreadCount > 99 ? "99+" : c.unreadCount}
+                            </span>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
                   </button>

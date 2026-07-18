@@ -36,23 +36,44 @@ export function formatWhatsAppPhone(value: string): string {
   return value || "—";
 }
 
+function isSameCalendarDay(a: Date, b: Date): boolean {
+  return (
+    a.getDate() === b.getDate() &&
+    a.getMonth() === b.getMonth() &&
+    a.getFullYear() === b.getFullYear()
+  );
+}
+
 export function formatChatTime(iso?: string): string {
   if (!iso) return "";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+}
+
+/** Timestamps style WhatsApp Web (liste de conversations). */
+export function formatChatListTime(iso?: string): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
   const now = new Date();
-  const sameDay =
-    d.getDate() === now.getDate() &&
-    d.getMonth() === now.getMonth() &&
-    d.getFullYear() === now.getFullYear();
-  if (sameDay) {
+  if (isSameCalendarDay(d, now)) {
     return d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  }
+  const yesterday = new Date(now);
+  yesterday.setDate(now.getDate() - 1);
+  if (isSameCalendarDay(d, yesterday)) return "Hier";
+
+  const startOfWeek = new Date(now);
+  startOfWeek.setHours(0, 0, 0, 0);
+  startOfWeek.setDate(now.getDate() - ((now.getDay() + 6) % 7)); // lundi
+  if (d >= startOfWeek) {
+    return d.toLocaleDateString("fr-FR", { weekday: "long" });
   }
   return d.toLocaleDateString("fr-FR", {
     day: "2-digit",
     month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
+    year: "numeric",
   });
 }
 
@@ -84,14 +105,6 @@ function hashString(value: string): number {
 
 export function avatarGradientClass(seed: string): (typeof AVATAR_PALETTES)[number] {
   return AVATAR_PALETTES[hashString(seed) % AVATAR_PALETTES.length];
-}
-
-function isSameCalendarDay(a: Date, b: Date): boolean {
-  return (
-    a.getDate() === b.getDate() &&
-    a.getMonth() === b.getMonth() &&
-    a.getFullYear() === b.getFullYear()
-  );
 }
 
 export function formatMessageDayLabel(iso?: string): string {

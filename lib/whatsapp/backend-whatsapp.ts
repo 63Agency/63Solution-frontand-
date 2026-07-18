@@ -116,10 +116,59 @@ function parseMessage(row: unknown): WhatsAppMessage | null {
 
   const mediaIdRaw =
     typeof r.mediaId === "string" && r.mediaId.trim() ? r.mediaId.trim() : null;
+  const mediaUrlParsed =
+    typeof r.mediaUrl === "string" && r.mediaUrl.trim()
+      ? r.mediaUrl.trim()
+      : typeof r.media_url === "string" && r.media_url.trim()
+        ? r.media_url.trim()
+        : null;
   const mediaIdLooksReal =
     mediaIdRaw && !mediaIdRaw.startsWith("[") && /^\d+$/.test(mediaIdRaw);
   const bodyLooksReal =
-    type === "audio" && body && !body.startsWith("[") && /^\d+$/.test(body);
+    type === "audio" &&
+    !mediaUrlParsed &&
+    body &&
+    !body.startsWith("[") &&
+    /^\d+$/.test(body);
+
+  let replyTo: WhatsAppMessage["replyTo"] = null;
+  const replyRaw = r.replyTo ?? r.reply_to;
+  if (replyRaw && typeof replyRaw === "object") {
+    const q = replyRaw as Record<string, unknown>;
+    const qBody = String(q.body ?? q.preview ?? q.text ?? "").trim();
+    const qId = String(q.id ?? q.messageId ?? q.watiMessageId ?? "").trim();
+    const qAuthor = String(
+      q.authorLabel ?? q.author ?? q.contactName ?? "",
+    ).trim();
+    if (qBody || qId) {
+      replyTo = {
+        id: qId || "quoted",
+        body: qBody || "Message",
+        authorLabel: qAuthor || "Contact",
+      };
+    }
+  } else if (
+    typeof r.replyToPreview === "string" ||
+    typeof r.reply_to_preview === "string"
+  ) {
+    const qBody = String(r.replyToPreview ?? r.reply_to_preview ?? "").trim();
+    const qId = String(
+      r.replyToMessageId ??
+        r.reply_to_wati_message_id ??
+        r.replyToWatiMessageId ??
+        "",
+    ).trim();
+    const qAuthor = String(
+      r.replyToAuthor ?? r.reply_to_author ?? "",
+    ).trim();
+    if (qBody || qId) {
+      replyTo = {
+        id: qId || "quoted",
+        body: qBody || "Message",
+        authorLabel: qAuthor || "Contact",
+      };
+    }
+  }
 
   return {
     id,
@@ -128,6 +177,19 @@ function parseMessage(row: unknown): WhatsAppMessage | null {
     body,
     type,
     mediaId: mediaIdLooksReal ? mediaIdRaw : bodyLooksReal ? body : null,
+    mediaUrl: mediaUrlParsed,
+    fileName:
+      typeof r.fileName === "string" && r.fileName.trim()
+        ? r.fileName.trim()
+        : typeof r.file_name === "string" && r.file_name.trim()
+          ? r.file_name.trim()
+          : null,
+    fileSize:
+      typeof r.fileSize === "number" && Number.isFinite(r.fileSize)
+        ? r.fileSize
+        : typeof r.file_size === "number" && Number.isFinite(r.file_size)
+          ? r.file_size
+          : null,
     status,
     metaMessageId:
       typeof r.metaMessageId === "string"
@@ -143,6 +205,7 @@ function parseMessage(row: unknown): WhatsAppMessage | null {
           : undefined,
     sentAt: typeof r.sentAt === "string" ? r.sentAt : undefined,
     createdAt,
+    replyTo,
   };
 }
 
@@ -315,8 +378,31 @@ export async function sendWhatsAppMessage(
   const base = getApiBaseUrl();
   if (!base) throw new Error("NEXT_PUBLIC_API_URL manquante.");
 
-  const text = payload.text.trim();
-  if (!text) throw new Error("Le message ne peut pas être vide.");
+  const text = (payload.text ?? "").trim();
+  const mediaUrl = payload.mediaUrl?.trim();
+  const mediaType = payload.type;
+
+  if (!mediaUrl && !text) {
+    throw new Error("Le message ne peut pas être vide.");
+  }
+  if (mediaUrl && (!mediaType || mediaType === "text" || mediaType === "audio")) {
+    throw new Error("Type de média invalide.");
+  }
+
+  const body: Record<string, string | number> = {};
+  if (text) body.text = text;
+  if (payload.replyToMessageId?.trim()) {
+    body.replyToMessageId = payload.replyToMessageId.trim();
+  }
+  if (mediaUrl && mediaType) {
+    body.mediaUrl = mediaUrl;
+    body.type = mediaType;
+    if (payload.fileName?.trim()) body.fileName = payload.fileName.trim();
+    if (typeof payload.fileSize === "number" && Number.isFinite(payload.fileSize)) {
+      body.fileSize = payload.fileSize;
+    }
+    if (payload.mimeType?.trim()) body.mimeType = payload.mimeType.trim();
+  }
 
   const res = await fetch(
     `${base}/whatsapp/conversations/${encodeURIComponent(conversationId)}/messages`,
@@ -324,7 +410,7 @@ export async function sendWhatsAppMessage(
       method: "POST",
       headers: buildAuthHeaders(),
       credentials: "include",
-      body: JSON.stringify({ text }),
+      body: JSON.stringify(body),
     },
   );
 

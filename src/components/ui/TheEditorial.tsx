@@ -26,7 +26,7 @@ export function GlobalStyles() {
       --bg-color: #ffffff;
       --fg-color: #000000;
       scrollbar-width: thin;
-      scrollbar-color: #000000 #ffffff;
+      scrollbar-color: #555555 transparent;
     }
 
     body {
@@ -44,9 +44,11 @@ export function GlobalStyles() {
     }
 
     ::selection { background: #000; color: #fff; }
+    /* Neutral scrollbar — avoid white track on dark panels (WhatsApp, emoji picker) */
     ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: #ffffff; border-left: 1px solid #000; }
-    ::-webkit-scrollbar-thumb { background: #000000; }
+    ::-webkit-scrollbar-track { background: transparent; border: none; }
+    ::-webkit-scrollbar-thumb { background: #555555; border-radius: 8px; }
+    ::-webkit-scrollbar-thumb:hover { background: #777777; }
 
     input[type='checkbox'] {
       appearance: none;

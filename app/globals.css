@@ -54,3 +54,91 @@ body {
 .toaster-bw [data-sonner-toast][data-removed="true"] {
   animation: toast-out-right 0.2s ease-in forwards;
 }
+
+/* WhatsApp panels — dark scrollbar (overrides editorial white track) */
+.wa-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #374045 transparent;
+}
+
+.wa-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.wa-scroll::-webkit-scrollbar-track {
+  background: transparent;
+  border: none;
+}
+
+.wa-scroll::-webkit-scrollbar-thumb {
+  background: #374045;
+  border-radius: 8px;
+}
+
+.wa-scroll::-webkit-scrollbar-thumb:hover {
+  background: #54656f;
+}
+
+/* Emoji picker — dark native + webkit scrollbar (no white track) */
+.wa-emoji-picker {
+  color-scheme: dark;
+}
+
+.wa-emoji-picker,
+.wa-emoji-picker *,
+.EmojiPickerReact,
+.EmojiPickerReact * {
+  color-scheme: dark;
+  scrollbar-width: thin !important;
+  scrollbar-color: #8696a0 #1f2c33 !important;
+}
+
+html body .wa-emoji-picker::-webkit-scrollbar,
+html body .wa-emoji-picker *::-webkit-scrollbar,
+html body .EmojiPickerReact::-webkit-scrollbar,
+html body .EmojiPickerReact *::-webkit-scrollbar {
+  width: 8px !important;
+  height: 8px !important;
+  background: #1f2c33 !important;
+}
+
+html body .wa-emoji-picker::-webkit-scrollbar-button,
+html body .wa-emoji-picker *::-webkit-scrollbar-button,
+html body .EmojiPickerReact::-webkit-scrollbar-button,
+html body .EmojiPickerReact *::-webkit-scrollbar-button {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+}
+
+html body .wa-emoji-picker::-webkit-scrollbar-track,
+html body .wa-emoji-picker *::-webkit-scrollbar-track,
+html body .EmojiPickerReact::-webkit-scrollbar-track,
+html body .EmojiPickerReact *::-webkit-scrollbar-track,
+html body .wa-emoji-picker::-webkit-scrollbar-track-piece,
+html body .wa-emoji-picker *::-webkit-scrollbar-track-piece,
+html body .EmojiPickerReact::-webkit-scrollbar-track-piece,
+html body .EmojiPickerReact *::-webkit-scrollbar-track-piece {
+  background: #1f2c33 !important;
+  background-color: #1f2c33 !important;
+  border: none !important;
+  box-shadow: none !important;
+}
+
+html body .wa-emoji-picker::-webkit-scrollbar-thumb,
+html body .wa-emoji-picker *::-webkit-scrollbar-thumb,
+html body .EmojiPickerReact::-webkit-scrollbar-thumb,
+html body .EmojiPickerReact *::-webkit-scrollbar-thumb {
+  background: #54656f !important;
+  background-color: #54656f !important;
+  border-radius: 8px !important;
+  border: 2px solid #1f2c33 !important;
+}
+
+html body .wa-emoji-picker::-webkit-scrollbar-corner,
+html body .wa-emoji-picker *::-webkit-scrollbar-corner,
+html body .EmojiPickerReact::-webkit-scrollbar-corner,
+html body .EmojiPickerReact *::-webkit-scrollbar-corner {
+  background: #1f2c33 !important;
+}

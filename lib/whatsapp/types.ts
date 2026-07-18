@@ -32,6 +32,10 @@ export type WhatsAppMessage = {
   type: WhatsAppMessageType;
   /** Meta media id when type is "audio" (also stored in body). */
   mediaId?: string | null;
+  /** Cloudinary / public HTTPS URL for image, video, document. */
+  mediaUrl?: string | null;
+  fileName?: string | null;
+  fileSize?: number | null;
   status: WhatsAppMessageStatus;
   /** Id message Meta (wamid…) — le backend peut encore exposer `watiMessageId`. */
   metaMessageId?: string;
@@ -39,10 +43,28 @@ export type WhatsAppMessage = {
   watiMessageId?: string;
   sentAt?: string;
   createdAt: string;
+  /** Citation affichée (réponse à un message) — UI / optimiste. */
+  replyTo?: {
+    id: string;
+    body: string;
+    authorLabel: string;
+  } | null;
+  /** Client-only: upload progress 0–100 while sending media. */
+  uploadProgress?: number | null;
+  /** Client-only: upload / send error message. */
+  uploadError?: string | null;
 };
 
 export type SendWhatsAppMessagePayload = {
-  text: string;
+  /** Texte ou légende (optionnel si média). */
+  text?: string;
+  /** Meta wamid ou uuid du message cité (le backend résout vers context.message_id). */
+  replyToMessageId?: string;
+  type?: WhatsAppMessageType;
+  mediaUrl?: string;
+  fileName?: string;
+  fileSize?: number;
+  mimeType?: string;
 };
 
 export type WhatsAppMessagesPage = {

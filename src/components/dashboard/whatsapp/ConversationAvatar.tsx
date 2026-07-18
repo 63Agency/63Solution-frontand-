@@ -20,7 +20,7 @@ export function ConversationAvatar({ seed, label, size = "sm", className }: Prop
   return (
     <div
       className={cn(
-        "flex shrink-0 items-center justify-center rounded-full bg-linear-to-br font-semibold text-white shadow-inner",
+        "flex shrink-0 items-center justify-center rounded-full bg-linear-to-br font-semibold text-white",
         avatarGradientClass(seed),
         sizeClass[size],
         className,

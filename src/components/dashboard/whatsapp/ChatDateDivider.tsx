@@ -6,8 +6,14 @@ type Props = {
 
 export function ChatDateDivider({ label }: Props) {
   return (
-    <div className="my-4 flex justify-center">
-      <span className="rounded-lg bg-[#182229] px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-zinc-400 shadow-sm">
+    <div className="my-3 flex justify-center">
+      <span
+        className="rounded-[7.5px] px-3 py-1.5 text-[12.5px] font-medium capitalize shadow-sm"
+        style={{
+          backgroundColor: "#182229",
+          color: "#8696a0",
+        }}
+      >
         {label}
       </span>
     </div>

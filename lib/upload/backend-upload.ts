@@ -16,6 +16,7 @@ const VIDEO_TYPES = [
 ];
 const IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 const VIDEO_MAX_BYTES = 100 * 1024 * 1024;
+const RAW_MAX_BYTES = 40 * 1024 * 1024;
 
 export function getCloudinaryCloudName(): string | undefined {
   return process.env.NEXT_PUBLIC_CLOUDINARY_CLOUD_NAME?.trim() || undefined;
@@ -39,6 +40,34 @@ export function validateVideoFile(file: File): string | null {
     return "Vidéo trop volumineuse (max 100 Mo).";
   }
   return null;
+}
+
+export function validateRawFile(file: File): string | null {
+  if (!file?.name) return "Fichier invalide.";
+  if (file.size <= 0) return "Fichier vide.";
+  if (file.size > RAW_MAX_BYTES) {
+    return "Document trop volumineux (max 40 Mo).";
+  }
+  return null;
+}
+
+export function classifyMediaFile(
+  file: File,
+): "image" | "video" | "document" {
+  if (file.type.startsWith("image/") || IMAGE_TYPES.includes(file.type)) {
+    return "image";
+  }
+  if (file.type.startsWith("video/") || VIDEO_TYPES.includes(file.type)) {
+    return "video";
+  }
+  return "document";
+}
+
+export function formatFileSize(bytes: number | null | undefined): string {
+  if (bytes == null || !Number.isFinite(bytes) || bytes < 0) return "";
+  if (bytes < 1024) return `${bytes} o`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} Mo`;
 }
 
 function authHeadersJson(): Record<string, string> {
@@ -230,6 +259,50 @@ export async function uploadVideo(
   const parsed = unwrapUploadResponse(raw);
   if (!parsed) throw new Error("Réponse upload vidéo invalide.");
   return parsed;
+}
+
+export async function uploadRaw(
+  file: File,
+  options?: { folder?: string; onProgress?: (percent: number) => void },
+): Promise<UploadMediaResponse> {
+  const err = validateRawFile(file);
+  if (err) throw new Error(err);
+
+  const formData = new FormData();
+  formData.append("file", file);
+  appendFolder(formData, options?.folder);
+
+  const raw = await uploadFormDataWithProgress<unknown>(
+    "/upload/raw",
+    formData,
+    options?.onProgress,
+  );
+  const parsed = unwrapUploadResponse(raw);
+  if (!parsed) throw new Error("Réponse upload document invalide.");
+  return parsed;
+}
+
+/** Upload image, video or document to Cloudinary via Nest. */
+export async function uploadChatMedia(
+  file: File,
+  options?: {
+    folder?: string;
+    onProgress?: (percent: number) => void;
+    /** Force document upload even if the file is an image/video. */
+    forceKind?: "image" | "video" | "document";
+  },
+): Promise<UploadMediaResponse & { kind: "image" | "video" | "document" }> {
+  const kind = options?.forceKind ?? classifyMediaFile(file);
+  if (kind === "image") {
+    const res = await uploadImage(file, options);
+    return { ...res, kind };
+  }
+  if (kind === "video") {
+    const res = await uploadVideo(file, options);
+    return { ...res, kind };
+  }
+  const res = await uploadRaw(file, options);
+  return { ...res, kind };
 }
 
 export async function uploadMultiple(

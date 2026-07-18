@@ -77,7 +77,7 @@ export function ConversationsPage() {
   }, [loadConversations]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-zinc-950">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden" style={{ backgroundColor: "#0b141a" }}>
       {apiUnavailable ? (
         <div className="shrink-0 flex items-center justify-center gap-2 border-b border-amber-800/40 bg-amber-950/50 px-4 py-2.5 text-center text-xs text-amber-100/90">
           <span className="size-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden />
@@ -88,9 +88,9 @@ export function ConversationsPage() {
         </div>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 gap-0 md:grid-cols-[minmax(300px,380px)_1fr] md:gap-3 md:p-3">
+      <div className="grid min-h-0 flex-1 gap-0 md:grid-cols-[minmax(320px,410px)_1fr]">
         <div
-          className={`min-h-0 ${selectedId ? "hidden md:block" : "block"}`}
+          className={`min-h-0 border-r border-[#222d34] ${selectedId ? "hidden md:block" : "block"}`}
         >
           <ConversationList
             conversations={conversations}
