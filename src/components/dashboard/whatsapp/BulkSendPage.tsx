@@ -23,6 +23,7 @@ import {
 } from "@/lib/whatsapp/bulk-send-storage";
 import { sendBulkWhatsAppMessages } from "@/lib/whatsapp/backend-whatsapp";
 import type { BulkWhatsAppSendPayload, BulkWhatsAppSendResultItem } from "@/lib/whatsapp/types";
+import { formatWhatsAppSendError } from "@/lib/whatsapp/whatsapp-send-errors";
 import { formatTemplatePreview } from "@/lib/whatsapp/whatsapp-templates";
 import { getStoredAccessToken } from "@/lib/auth/backend-login";
 import { cn } from "@/src/lib/utils";
@@ -296,7 +297,7 @@ export function BulkSendPage() {
         toast.error(`${res.failed} échec${res.failed > 1 ? "s" : ""}.`);
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Envoi impossible.");
+      toast.error(formatWhatsAppSendError(e instanceof Error ? e.message : "Envoi impossible."));
     } finally {
       setSending(false);
     }
@@ -453,7 +454,7 @@ export function BulkSendPage() {
                   </div>
                   {!templatesLoading && templates.length === 0 ? (
                     <p className="text-xs text-amber-400/90">
-                      Aucun template personnalisé trouvé. Vérifiez WHATCHIMP_API_KEY côté serveur.
+                      Aucun template personnalisé trouvé. Vérifiez META_ACCESS_TOKEN côté serveur.
                     </p>
                   ) : null}
                 </div>

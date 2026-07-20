@@ -185,3 +185,22 @@ export function consumeBulkSendImport(): BulkSendImportContact[] | null {
 
 export const BULK_SEND_PATH = "/dashboard/conversations/envoi-multiple";
 export const BULK_SEND_IMPORT_PATH = "/dashboard/conversations/envoi-multiple/import-leads";
+
+/** Prépare l'écran Envoi multiple pour un contact (mode template). */
+export function prepareBulkSendForContact(
+  phone: string,
+  contactName?: string,
+): void {
+  if (typeof window === "undefined") return;
+  const digits = normalizePhoneDigits(phone);
+  const names: Record<string, string> = {};
+  const name = contactName?.trim();
+  if (name && digits.length >= 9) names[digits] = name;
+  saveBulkSendDraft({
+    phonesRaw: digits,
+    message: "",
+    leadsImportCount: 0,
+    sendMode: "template",
+    contactNamesByPhone: names,
+  });
+}

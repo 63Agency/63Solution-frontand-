@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
   ChevronDown,
@@ -20,6 +21,10 @@ import {
 import { toast } from "sonner";
 import EmojiPicker, { Theme, type EmojiClickData } from "emoji-picker-react";
 import {
+  BULK_SEND_PATH,
+  prepareBulkSendForContact,
+} from "@/lib/whatsapp/bulk-send-storage";
+import {
   classifyMediaFile,
   mediaDisplayUrl,
   uploadChatMedia,
@@ -29,6 +34,13 @@ import {
   markWhatsAppConversationRead,
   sendWhatsAppMessage,
 } from "@/lib/whatsapp/backend-whatsapp";
+import { mergeMessageStatus } from "@/lib/whatsapp/message-status";
+import {
+  formatWhatsAppSendError,
+  isWhatsAppWindowClosedError,
+  WINDOW_CLOSED_HINT,
+  WINDOW_CLOSED_TOAST,
+} from "@/lib/whatsapp/whatsapp-send-errors";
 import type { WhatsAppConversation, WhatsAppMessage } from "@/lib/whatsapp/types";
 import { cn } from "@/src/lib/utils";
 import {
@@ -36,6 +48,7 @@ import {
   type AttachmentMenuAction,
 } from "./AttachmentMenu";
 import { ChatDateDivider } from "./ChatDateDivider";
+import { ChatTemplatePicker } from "./ChatTemplatePicker";
 import { ContactInfoPanel } from "./ContactInfoPanel";
 import { ConversationAvatar } from "./ConversationAvatar";
 import { MediaSendPreview, type MediaPreviewKind } from "./MediaSendPreview";
@@ -76,6 +89,27 @@ type PendingMedia = {
   localId: string;
 };
 
+type PendingSendRetry =
+  | {
+      kind: "text";
+      text: string;
+      replyToMessageId?: string;
+      replyTo?: WhatsAppMessage["replyTo"];
+    }
+  | {
+      kind: "media";
+      file: File;
+      mediaKind: MediaPreviewKind;
+      caption: string;
+      mediaUrl?: string;
+      fileName: string;
+      fileSize: number;
+      mimeType?: string;
+      messageType: WhatsAppMessage["type"];
+      replyToMessageId?: string;
+      replyTo?: WhatsAppMessage["replyTo"];
+    };
+
 function messagePreview(message: WhatsAppMessage): string {
   if (message.type === "image") return message.body?.trim() || "Photo";
   if (message.type === "video") return message.body?.trim() || "Vidéo";
@@ -94,6 +128,7 @@ function MessageTimeline({
   onOpenMenu,
   onQuickReply,
   onRetryUpload,
+  onRetrySend,
 }: {
   messages: WhatsAppMessage[];
   highlightQuery?: string;
@@ -101,6 +136,7 @@ function MessageTimeline({
   onOpenMenu: (message: WhatsAppMessage, x: number, y: number) => void;
   onQuickReply: (message: WhatsAppMessage) => void;
   onRetryUpload: (message: WhatsAppMessage) => void;
+  onRetrySend: (message: WhatsAppMessage) => void;
 }) {
   const nodes: React.ReactNode[] = [];
   let lastDay = "";
@@ -135,6 +171,7 @@ function MessageTimeline({
         onOpenMenu={onOpenMenu}
         onQuickReply={onQuickReply}
         onRetryUpload={onRetryUpload}
+        onRetrySend={onRetrySend}
       />,
     );
   }
@@ -169,7 +206,10 @@ export function ChatThread({
     kind: MediaPreviewKind;
   } | null>(null);
   const [previewSending, setPreviewSending] = useState(false);
+  const [sessionWindowClosed, setSessionWindowClosed] = useState(false);
+  const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
 
+  const router = useRouter();
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -177,9 +217,39 @@ export function ChatThread({
   const imageInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
   const pendingFilesRef = useRef<Map<string, PendingMedia>>(new Map());
+  const pendingRetriesRef = useRef<Map<string, PendingSendRetry>>(new Map());
 
   const conversationId = conversation?.id ?? null;
   const hasDraft = draft.trim().length > 0;
+  const composerLocked = sessionWindowClosed;
+
+  const lastInboundAt = useMemo(() => {
+    let latest = 0;
+    for (const m of messages) {
+      if (m.direction !== "inbound") continue;
+      const t = new Date(m.sentAt ?? m.createdAt).getTime();
+      if (Number.isFinite(t) && t > latest) latest = t;
+    }
+    return latest;
+  }, [messages]);
+
+  const handleSendError = (raw: unknown) => {
+    const msg = formatWhatsAppSendError(
+      raw instanceof Error ? raw.message : "Envoi impossible.",
+    );
+    if (isWhatsAppWindowClosedError(msg)) {
+      setSessionWindowClosed(true);
+      toast.error(WINDOW_CLOSED_TOAST);
+      return;
+    }
+    toast.error(msg);
+  };
+
+  const openBulkSend = () => {
+    if (!conversation) return;
+    prepareBulkSendForContact(conversation.phoneNumber, conversation.contactName);
+    router.push(BULK_SEND_PATH);
+  };
 
   const matchIds = useMemo(() => {
     const q = threadSearch.trim().toLowerCase();
@@ -200,14 +270,35 @@ export function ChatThread({
     try {
       const page = await fetchWhatsAppMessages(conversationId);
       setMessages((prev) => {
-        const locals = prev.filter(
-          (m) =>
-            m.id.startsWith("local-") &&
-            (m.uploadProgress != null || m.uploadError),
+        const prevById = new Map(prev.map((m) => [m.id, m]));
+        const mergedRemote = page.items.map((remote) => {
+          const local = prevById.get(remote.id);
+          if (!local) return remote;
+          return {
+            ...remote,
+            status: mergeMessageStatus(local.status, remote.status),
+            replyTo: remote.replyTo ?? local.replyTo,
+          };
+        });
+        const remoteIds = new Set(mergedRemote.map((m) => m.id));
+        const remoteMetaIds = new Set(
+          mergedRemote
+            .map((m) => m.metaMessageId?.trim() || m.watiMessageId?.trim())
+            .filter(Boolean),
         );
-        const remoteIds = new Set(page.items.map((m) => m.id));
-        const keepLocals = locals.filter((m) => !remoteIds.has(m.id));
-        return [...page.items, ...keepLocals].sort(
+        const locals = prev.filter((m) => {
+          if (!m.id.startsWith("local-")) return false;
+          if (remoteIds.has(m.id)) return false;
+          const meta = m.metaMessageId?.trim() || m.watiMessageId?.trim();
+          if (meta && remoteMetaIds.has(meta)) return false;
+          return (
+            m.status === "pending" ||
+            m.status === "failed" ||
+            m.uploadProgress != null ||
+            m.uploadError
+          );
+        });
+        return [...mergedRemote, ...locals].sort(
           (a, b) =>
             new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
         );
@@ -226,8 +317,17 @@ export function ChatThread({
 
   useEffect(() => {
     void loadMessages();
+    setSessionWindowClosed(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
+
+  useEffect(() => {
+    if (!sessionWindowClosed || !lastInboundAt) return;
+    const ageMs = Date.now() - lastInboundAt;
+    if (ageMs < 24 * 60 * 60 * 1000) {
+      setSessionWindowClosed(false);
+    }
+  }, [lastInboundAt, sessionWindowClosed]);
 
   useEffect(() => {
     if (pollTick == null || !conversationId) return;
@@ -315,7 +415,7 @@ export function ChatThread({
   };
 
   const handleSend = async () => {
-    if (!conversationId || !draft.trim()) return;
+    if (!conversationId || !draft.trim() || composerLocked) return;
     setSending(true);
     setEmojiOpen(false);
     setAttachOpen(false);
@@ -323,6 +423,34 @@ export function ChatThread({
     const quoting = replyTo;
     setDraft("");
     setReplyTo(null);
+
+    const localId = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const quoteMeta: WhatsAppMessage["replyTo"] = quoting
+      ? {
+          id: quoting.id,
+          body: messagePreview(quoting),
+          authorLabel:
+            quoting.direction === "outbound"
+              ? "Vous"
+              : conversationDisplayName(
+                  conversation?.contactName,
+                  conversation?.phoneNumber,
+                ),
+        }
+      : null;
+
+    const optimistic: WhatsAppMessage = {
+      id: localId,
+      conversationId,
+      direction: "outbound",
+      body: text,
+      type: "text",
+      status: "pending",
+      createdAt: new Date().toISOString(),
+      replyTo: quoteMeta,
+    };
+    setMessages((prev) => [...prev, optimistic]);
+
     try {
       const replyToMessageId =
         quoting?.metaMessageId?.trim() ||
@@ -333,28 +461,30 @@ export function ChatThread({
         text,
         replyToMessageId,
       });
-      const withQuote: WhatsAppMessage = quoting
-        ? {
-            ...sent,
-            replyTo: {
-              id: quoting.id,
-              body: messagePreview(quoting),
-              authorLabel:
-                quoting.direction === "outbound"
-                  ? "Vous"
-                  : conversationDisplayName(
-                      conversation?.contactName,
-                      conversation?.phoneNumber,
-                    ),
-            },
-          }
+      pendingRetriesRef.current.delete(localId);
+      const withQuote: WhatsAppMessage = quoteMeta
+        ? { ...sent, status: sent.status, replyTo: quoteMeta }
         : sent;
-      setMessages((prev) => [...prev, withQuote]);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === localId ? withQuote : m)),
+      );
       onConversationUpdate();
     } catch (e) {
-      setDraft(text);
-      if (quoting) setReplyTo(quoting);
-      toast.error(e instanceof Error ? e.message : "Envoi impossible.");
+      pendingRetriesRef.current.set(localId, {
+        kind: "text",
+        text,
+        replyToMessageId:
+          quoting?.metaMessageId?.trim() ||
+          quoting?.watiMessageId?.trim() ||
+          quoting?.id,
+        replyTo: quoteMeta,
+      });
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === localId ? { ...m, status: "failed" as const } : m,
+        ),
+      );
+      handleSendError(e);
     } finally {
       setSending(false);
     }
@@ -450,40 +580,71 @@ export function ChatThread({
         quoting?.id ||
         undefined;
 
-      const sent = await sendWhatsAppMessage(conversationId, {
-        text: caption || undefined,
-        type: resolvedKind,
-        mediaUrl,
-        fileName: file.name,
-        fileSize: file.size,
-        mimeType: file.type || undefined,
-        replyToMessageId,
-      });
+      try {
+        const sent = await sendWhatsAppMessage(conversationId, {
+          text: caption || undefined,
+          type: resolvedKind,
+          mediaUrl,
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type || undefined,
+          replyToMessageId,
+        });
 
-      pendingFilesRef.current.delete(localId);
-      URL.revokeObjectURL(localPreviewUrl);
+        pendingFilesRef.current.delete(localId);
+        pendingRetriesRef.current.delete(localId);
+        URL.revokeObjectURL(localPreviewUrl);
 
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === localId
-            ? {
-                ...sent,
-                replyTo: optimistic.replyTo,
-                uploadProgress: null,
-                uploadError: null,
-              }
-            : m,
-        ),
-      );
-      onConversationUpdate();
-    } catch (e) {
-      const message =
-        e instanceof Error ? e.message : "Échec de l'envoi du média.";
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === localId
+              ? {
+                  ...sent,
+                  status: sent.status,
+                  replyTo: optimistic.replyTo,
+                  uploadProgress: null,
+                  uploadError: null,
+                }
+              : m,
+          ),
+        );
+        onConversationUpdate();
+      } catch (sendErr) {
+        pendingRetriesRef.current.set(localId, {
+          kind: "media",
+          file,
+          mediaKind: kind,
+          caption,
+          mediaUrl,
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type || undefined,
+          messageType: resolvedKind,
+          replyToMessageId,
+          replyTo: optimistic.replyTo,
+        });
+        patchLocalMessage(localId, {
+          status: "failed",
+          uploadProgress: null,
+          uploadError: null,
+        });
+        handleSendError(sendErr);
+      }
+    } catch (uploadErr) {
+      const raw =
+        uploadErr instanceof Error
+          ? uploadErr.message
+          : "Échec de l'envoi du média.";
+      const errMessage = formatWhatsAppSendError(raw);
       patchLocalMessage(localId, {
         status: "failed",
         uploadProgress: null,
-        uploadError: message,
+        uploadError: errMessage,
       });
+      if (isWhatsAppWindowClosedError(errMessage)) {
+        setSessionWindowClosed(true);
+        toast.error(WINDOW_CLOSED_TOAST);
+      }
     }
   };
 
@@ -514,7 +675,81 @@ export function ChatThread({
     void sendMediaMessage(pending.file, pending.kind, caption, message.id, null);
   };
 
+  const onRetrySend = async (message: WhatsAppMessage) => {
+    const retry = pendingRetriesRef.current.get(message.id);
+    if (!retry || !conversationId) {
+      toast.error("Impossible de réessayer cet envoi.");
+      return;
+    }
+
+    patchLocalMessage(message.id, { status: "pending", uploadError: null });
+
+    try {
+      if (retry.kind === "text") {
+        const sent = await sendWhatsAppMessage(conversationId, {
+          text: retry.text,
+          replyToMessageId: retry.replyToMessageId,
+        });
+        pendingRetriesRef.current.delete(message.id);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === message.id
+              ? {
+                  ...sent,
+                  status: sent.status,
+                  replyTo: retry.replyTo ?? sent.replyTo,
+                }
+              : m,
+          ),
+        );
+        onConversationUpdate();
+        return;
+      }
+
+      if (retry.mediaUrl) {
+        const sent = await sendWhatsAppMessage(conversationId, {
+          text: retry.caption || undefined,
+          type: retry.messageType,
+          mediaUrl: retry.mediaUrl,
+          fileName: retry.fileName,
+          fileSize: retry.fileSize,
+          mimeType: retry.mimeType,
+          replyToMessageId: retry.replyToMessageId,
+        });
+        pendingRetriesRef.current.delete(message.id);
+        pendingFilesRef.current.delete(message.id);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === message.id
+              ? {
+                  ...sent,
+                  status: sent.status,
+                  replyTo: retry.replyTo ?? sent.replyTo,
+                  uploadProgress: null,
+                  uploadError: null,
+                }
+              : m,
+          ),
+        );
+        onConversationUpdate();
+        return;
+      }
+
+      await sendMediaMessage(
+        retry.file,
+        retry.mediaKind,
+        retry.caption,
+        message.id,
+        null,
+      );
+    } catch (e) {
+      patchLocalMessage(message.id, { status: "failed" });
+      handleSendError(e);
+    }
+  };
+
   const onAttachSelect = (action: AttachmentMenuAction) => {
+    if (composerLocked) return;
     setAttachOpen(false);
     setEmojiOpen(false);
     if (action === "document") {
@@ -527,6 +762,7 @@ export function ChatThread({
   };
 
   const onPickMedia = (file: File | undefined, mode: "media" | "document") => {
+    if (composerLocked) return;
     setAttachOpen(false);
     if (!file) return;
 
@@ -723,6 +959,7 @@ export function ChatThread({
                   onOpenMenu={(message, x, y) => setMenu({ message, x, y })}
                   onQuickReply={startReply}
                   onRetryUpload={onRetryUpload}
+                  onRetrySend={onRetrySend}
                 />
               ) : null}
               <div ref={bottomRef} className="h-2" />
@@ -730,7 +967,45 @@ export function ChatThread({
           </div>
 
           <div ref={composerRef} className="relative shrink-0 bg-transparent px-3 pb-3 pt-1.5">
-            {attachOpen ? <AttachmentMenu onSelect={onAttachSelect} /> : null}
+            {composerLocked ? (
+              <div
+                className="mb-2 rounded-xl border px-3 py-2.5"
+                style={{
+                  backgroundColor: "rgba(32,44,51,0.95)",
+                  borderColor: "rgba(234,179,8,0.35)",
+                }}
+                role="status"
+              >
+                <p className="text-[13px] leading-snug" style={{ color: "#fbbf24" }}>
+                  {WINDOW_CLOSED_TOAST}
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setTemplatePickerOpen(true)}
+                    className="rounded-full px-3 py-1.5 text-[12px] font-medium"
+                    style={{ backgroundColor: "#00a884", color: "#111b21" }}
+                  >
+                    Choisir un template
+                  </button>
+                  <button
+                    type="button"
+                    onClick={openBulkSend}
+                    className="rounded-full px-3 py-1.5 text-[12px] font-medium ring-1 ring-inset ring-[#8696a0]/40"
+                    style={{
+                      color: "#e9edef",
+                      backgroundColor: "rgba(255,255,255,0.06)",
+                    }}
+                  >
+                    Envoi multiple
+                  </button>
+                </div>
+              </div>
+            ) : null}
+
+            {attachOpen && !composerLocked ? (
+              <AttachmentMenu onSelect={onAttachSelect} />
+            ) : null}
 
           {emojiOpen ? (
             <div
@@ -772,7 +1047,10 @@ export function ChatThread({
           />
 
           <form
-            className="overflow-hidden rounded-[24px]"
+            className={cn(
+              "overflow-hidden rounded-[24px]",
+              composerLocked && "opacity-55",
+            )}
             style={{ backgroundColor: "#2a3942" }}
             onSubmit={(e) => {
               e.preventDefault();
@@ -815,14 +1093,21 @@ export function ChatThread({
               </div>
             ) : null}
 
-            <div className="flex min-h-[52px] items-end gap-1 py-1 pl-1.5 pr-1.5">
+            <div
+              className={cn(
+                "flex min-h-[52px] items-end gap-1 py-1 pl-1.5 pr-1.5",
+                composerLocked && "pointer-events-none",
+              )}
+            >
               <button
                 type="button"
                 onClick={() => {
+                  if (composerLocked) return;
                   setAttachOpen((v) => !v);
                   setEmojiOpen(false);
                 }}
-                className="mb-0.5 flex size-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/5"
+                disabled={composerLocked}
+                className="mb-0.5 flex size-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/5 disabled:opacity-40"
                 style={{ color: attachOpen ? WA.green : "#aebac1" }}
                 aria-label="Joindre"
                 aria-expanded={attachOpen}
@@ -833,10 +1118,12 @@ export function ChatThread({
               <button
                 type="button"
                 onClick={() => {
+                  if (composerLocked) return;
                   setEmojiOpen((v) => !v);
                   setAttachOpen(false);
                 }}
-                className="mb-0.5 flex size-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/5"
+                disabled={composerLocked}
+                className="mb-0.5 flex size-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/5 disabled:opacity-40"
                 style={{ color: emojiOpen ? WA.green : "#aebac1" }}
                 aria-label="Emoji"
                 aria-expanded={emojiOpen}
@@ -849,6 +1136,7 @@ export function ChatThread({
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
+                  if (composerLocked) return;
                   if (e.key === "Escape" && replyTo) {
                     e.preventDefault();
                     setReplyTo(null);
@@ -860,18 +1148,26 @@ export function ChatThread({
                   }
                 }}
                 rows={1}
-                placeholder={replyTo ? "Répondre…" : "Entrez un message"}
+                disabled={composerLocked}
+                placeholder={
+                  composerLocked
+                    ? WINDOW_CLOSED_HINT
+                    : replyTo
+                      ? "Répondre…"
+                      : "Entrez un message"
+                }
                 className={cn(
                   "max-h-[120px] min-h-[40px] flex-1 resize-none bg-transparent py-[10px] pr-1",
                   "text-[15px] leading-[20px] outline-none placeholder:text-[#8696a0]",
+                  composerLocked && "cursor-not-allowed",
                 )}
-                style={{ color: WA.text }}
+                style={{ color: composerLocked ? WA.muted : WA.text }}
               />
 
               {hasDraft || sending ? (
                 <button
                   type="submit"
-                  disabled={sending || !hasDraft}
+                  disabled={composerLocked || sending || !hasDraft}
                   className="mb-0.5 flex size-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/5 disabled:opacity-40"
                   style={{ color: "#aebac1" }}
                   aria-label="Envoyer"
@@ -885,8 +1181,9 @@ export function ChatThread({
               ) : (
                 <button
                   type="button"
+                  disabled={composerLocked}
                   onClick={() => toast.message("Messages vocaux bientôt disponibles.")}
-                  className="mb-0.5 flex size-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/5"
+                  className="mb-0.5 flex size-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/5 disabled:opacity-40"
                   style={{ color: "#aebac1" }}
                   aria-label="Message vocal"
                 >
@@ -933,6 +1230,18 @@ export function ChatThread({
           }}
         />
       ) : null}
+
+      <ChatTemplatePicker
+        open={templatePickerOpen}
+        phoneNumber={conversation.phoneNumber}
+        contactName={conversation.contactName}
+        onClose={() => setTemplatePickerOpen(false)}
+        onSent={() => {
+          setSessionWindowClosed(false);
+          void loadMessages(true);
+          onConversationUpdate();
+        }}
+      />
     </div>
   );
 }

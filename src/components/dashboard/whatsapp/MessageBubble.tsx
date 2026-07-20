@@ -29,6 +29,7 @@ type Props = {
   onOpenMenu?: (message: WhatsAppMessage, x: number, y: number) => void;
   onQuickReply?: (message: WhatsAppMessage) => void;
   onRetryUpload?: (message: WhatsAppMessage) => void;
+  onRetrySend?: (message: WhatsAppMessage) => void;
 };
 
 const WA = {
@@ -69,7 +70,7 @@ function StatusIcon({ status }: { status: WhatsAppMessage["status"] }) {
     return <span className="text-[11px] font-bold text-red-400">!</span>;
   }
   if (status === "pending") {
-    return <Check className="size-[14px] text-[#8696a0]/70" strokeWidth={2.5} aria-hidden />;
+    return <Loader2 className="size-[13px] animate-spin text-[#8696a0]/80" aria-hidden />;
   }
   if (status === "read") {
     return <CheckCheck className="size-[16px]" style={{ color: WA.read }} strokeWidth={2} aria-hidden />;
@@ -77,6 +78,7 @@ function StatusIcon({ status }: { status: WhatsAppMessage["status"] }) {
   if (status === "delivered") {
     return <CheckCheck className="size-[16px]" style={{ color: WA.delivered }} strokeWidth={2} aria-hidden />;
   }
+  // sent — une seule coche (HTTP 200 ≠ livré)
   return <Check className="size-[14px]" style={{ color: WA.delivered }} strokeWidth={2.5} aria-hidden />;
 }
 
@@ -605,6 +607,7 @@ export function MessageBubble({
   onOpenMenu,
   onQuickReply,
   onRetryUpload,
+  onRetrySend,
 }: Props) {
   const outbound = message.direction === "outbound";
   const time = formatChatTime(message.sentAt ?? message.createdAt);
@@ -622,6 +625,8 @@ export function MessageBubble({
   const hasMediaChrome = isAudio || isImage || isVideo || isDocument;
 
   const retry = onRetryUpload ? () => onRetryUpload(message) : undefined;
+  const failedOutbound = outbound && message.status === "failed";
+  const showSendRetry = failedOutbound && onRetrySend && !message.uploadError;
 
   return (
     <div
@@ -746,10 +751,23 @@ export function MessageBubble({
 
         <div
           className={cn(
-            "-mb-0.5 mt-0.5 flex items-center justify-end gap-[3px] select-none",
+            "-mb-0.5 mt-0.5 flex flex-wrap items-center justify-end gap-x-[3px] gap-y-1 select-none",
             hasMediaChrome ? "" : "float-right ml-2 relative top-[2px]",
           )}
         >
+          {showSendRetry ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onRetrySend?.(message);
+              }}
+              className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] font-medium text-red-300 hover:bg-red-500/25"
+            >
+              <RotateCcw className="size-3" aria-hidden />
+              Réessayer
+            </button>
+          ) : null}
           <span className="text-[11px] leading-none" style={{ color: WA.muted }}>
             {time}
           </span>
