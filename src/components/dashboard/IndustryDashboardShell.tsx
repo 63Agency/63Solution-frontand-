@@ -5,11 +5,13 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
+  ChevronDown,
   FileText,
   LayoutDashboard,
   LogOut,
   MessageCircle,
   MessagesSquare,
+  PanelLeft,
   Send,
   Settings,
   UserPlus,
@@ -33,8 +35,6 @@ import { NotificationsProvider } from "./notifications/NotificationsProvider";
 const WHATSAPP_BASE = "/dashboard/conversations";
 const FACTURES_BASE = "/dashboard/factures";
 const PARAMETRES_BASE = "/dashboard/parametres";
-
-type SectionKey = "factures" | "whatsapp" | "parametres" | null;
 
 const parametresSubItems = [
   { href: `${PARAMETRES_BASE}?tab=profil`, label: "Profil", tab: "profil" },
@@ -84,10 +84,13 @@ export function IndustryDashboardShell({
   const pathname = usePathname();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const [collapsed, setCollapsed] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [userRole, setUserRole] = useState("admin");
   const [roleResolved, setRoleResolved] = useState(false);
-  const [openSection, setOpenSection] = useState<SectionKey>(null);
+  const [whatsAppExpanded, setWhatsAppExpanded] = useState(true);
+  const [facturesExpanded, setFacturesExpanded] = useState(true);
+  const [parametresExpanded, setParametresExpanded] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,16 +110,76 @@ export function IndustryDashboardShell({
     };
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem("dashboard_sidebar_collapsed");
+    if (saved === "1") setCollapsed(true);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("dashboard_sidebar_collapsed", collapsed ? "1" : "0");
+  }, [collapsed]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mq = window.matchMedia("(max-width: 767px)");
+    const apply = () => {
+      if (mq.matches) setCollapsed(true);
+    };
+    apply();
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
+  }, []);
+
   const whatsappActive = isWhatsAppPath(pathname ?? "");
   const facturesActive = isFacturesPath(pathname ?? "");
   const parametresActive = isParametresPath(pathname ?? "");
 
   useEffect(() => {
-    if (facturesActive) setOpenSection("factures");
-    else if (whatsappActive) setOpenSection("whatsapp");
-    else if (parametresActive) setOpenSection("parametres");
-    else setOpenSection(null);
-  }, [facturesActive, whatsappActive, parametresActive]);
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem("dashboard_whatsapp_expanded");
+    if (saved === "0") setWhatsAppExpanded(false);
+    else if (saved === "1") setWhatsAppExpanded(true);
+    else setWhatsAppExpanded(whatsappActive);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("dashboard_whatsapp_expanded", whatsAppExpanded ? "1" : "0");
+  }, [whatsAppExpanded]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem("dashboard_factures_expanded");
+    if (saved === "0") setFacturesExpanded(false);
+    else if (saved === "1") setFacturesExpanded(true);
+    else setFacturesExpanded(facturesActive);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("dashboard_factures_expanded", facturesExpanded ? "1" : "0");
+  }, [facturesExpanded]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const saved = window.localStorage.getItem("dashboard_parametres_expanded");
+    if (saved === "0") setParametresExpanded(false);
+    else if (saved === "1") setParametresExpanded(true);
+    else setParametresExpanded(parametresActive);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(
+      "dashboard_parametres_expanded",
+      parametresExpanded ? "1" : "0",
+    );
+  }, [parametresExpanded]);
 
   useEffect(() => {
     if (!roleResolved || !pathname) return;
@@ -144,20 +207,30 @@ export function IndustryDashboardShell({
     [showUsersSub],
   );
 
-  const iconBtnClass = (active: boolean) =>
+  const linkClass = (active: boolean) =>
     cn(
-      "flex size-11 items-center justify-center rounded-xl transition-colors",
-      active
-        ? "bg-zinc-800 text-white"
-        : "text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-100",
+      "flex items-center text-sm font-medium transition-colors",
+      collapsed
+        ? cn(
+            "mx-auto size-10 justify-center rounded-lg",
+            active
+              ? "bg-zinc-800/60 text-white"
+              : "text-zinc-400 hover:bg-zinc-800/35 hover:text-zinc-200 active:bg-zinc-800/50",
+          )
+        : cn(
+            "gap-3 rounded-xl px-3 py-2.5",
+            active
+              ? "bg-zinc-800/80 text-white"
+              : "text-zinc-400 hover:bg-zinc-800/40 hover:text-zinc-200",
+          ),
     );
 
   const subLinkClass = (active: boolean) =>
     cn(
-      "block rounded-lg px-3 py-2.5 text-[15px] font-medium transition-colors",
+      "flex items-center gap-2.5 rounded-xl py-2 pl-9 pr-3 text-[13px] font-medium transition-colors",
       active
-        ? "bg-zinc-800 text-white"
-        : "text-zinc-400 hover:bg-zinc-800/50 hover:text-zinc-100",
+        ? "bg-zinc-800/70 text-white"
+        : "text-zinc-500 hover:bg-zinc-800/35 hover:text-zinc-200",
     );
 
   const isFacturesSubActive = (tab: string) => {
@@ -181,34 +254,58 @@ export function IndustryDashboardShell({
     );
   };
 
-  const sectionTitle =
-    openSection === "factures"
-      ? "Devis & Factures"
-      : openSection === "whatsapp"
-        ? "WhatsApp"
-        : openSection === "parametres"
-          ? "Configuration"
-          : null;
+  const iconSize = collapsed ? "size-6" : "size-5";
 
   return (
     <NotificationsProvider>
-      <div className="flex h-dvh max-h-dvh overflow-hidden bg-zinc-950 text-zinc-100">
-        {/* Primary icon rail */}
-        <aside className="flex w-[72px] shrink-0 flex-col border-r border-zinc-800 bg-zinc-950">
-          <div className="flex h-14 items-center justify-center border-b border-zinc-800">
-            <Link href="/dashboard" aria-label="63 Agency — accueil" className="p-1">
-              <Image
-                src="/images/63.png"
-                alt="63"
-                width={36}
-                height={36}
-                className="size-9 object-contain"
-                priority
+      <div className="flex h-dvh max-h-dvh overflow-hidden bg-zinc-950 text-zinc-100 [color-scheme:dark]">
+        <aside
+          className={cn(
+            "flex shrink-0 flex-col border-r border-zinc-800 bg-zinc-950 transition-[width] duration-200",
+            collapsed ? "w-[72px]" : "w-64",
+            whatsappActive && "max-md:hidden",
+          )}
+        >
+          <div
+            className={cn(
+              "flex h-14 items-center border-b border-zinc-800",
+              collapsed ? "justify-center px-0" : "px-2",
+            )}
+          >
+            <button
+              type="button"
+              onClick={() => setCollapsed((c) => !c)}
+              className="flex size-10 shrink-0 items-center justify-center rounded-lg text-zinc-400 transition-colors hover:bg-zinc-800/40 hover:text-white active:bg-zinc-800/55"
+              aria-label={collapsed ? "Agrandir le menu" : "Réduire le menu"}
+            >
+              <PanelLeft
+                className={cn("size-5 transition-transform duration-200", collapsed && "rotate-180")}
               />
-            </Link>
+            </button>
+            {!collapsed ? (
+              <Link
+                href="/dashboard"
+                className="ml-1 flex min-w-0 flex-1 items-center"
+                aria-label="63 Agency — accueil"
+              >
+                <Image
+                  src="/images/63.png"
+                  alt="63 Agency"
+                  width={36}
+                  height={36}
+                  className="size-9 object-contain"
+                  priority
+                />
+              </Link>
+            ) : null}
           </div>
 
-          <nav className="flex flex-1 flex-col items-center gap-2 overflow-y-auto py-3">
+          <nav
+            className={cn(
+              "app-scroll flex flex-1 flex-col gap-1 overflow-y-auto",
+              collapsed ? "px-0 py-2" : "p-2",
+            )}
+          >
             {navItems.map((item) => {
               const Icon = item.icon;
               const active =
@@ -220,145 +317,216 @@ export function IndustryDashboardShell({
                 <Link
                   key={item.href}
                   href={item.href}
-                  title={item.label}
-                  aria-label={item.label}
-                  onClick={() => setOpenSection(null)}
-                  className={iconBtnClass(active)}
+                  title={collapsed ? item.label : undefined}
+                  className={linkClass(active)}
                 >
-                  <Icon className="size-6" strokeWidth={1.75} aria-hidden />
+                  <Icon className={cn(iconSize, "shrink-0")} strokeWidth={1.75} aria-hidden />
+                  {!collapsed ? <span>{item.label}</span> : null}
                 </Link>
               );
             })}
 
             {showFactures ? (
-              <button
-                type="button"
-                title="Devis & Factures"
-                aria-label="Devis & Factures"
-                aria-pressed={openSection === "factures"}
-                onClick={() => {
-                  setOpenSection((prev) => (prev === "factures" ? null : "factures"));
-                  if (!facturesActive) router.push(FACTURES_BASE);
-                }}
-                className={iconBtnClass(facturesActive || openSection === "factures")}
-              >
-                <FileText className="size-6" strokeWidth={1.75} aria-hidden />
-              </button>
+              <div className="mt-1">
+                {collapsed ? (
+                  <Link
+                    href={FACTURES_BASE}
+                    className={linkClass(facturesActive)}
+                    title="Devis & Factures"
+                  >
+                    <FileText className={cn(iconSize, "shrink-0")} strokeWidth={1.75} aria-hidden />
+                  </Link>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setFacturesExpanded((v) => !v)}
+                      className={cn(
+                        "flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors hover:bg-zinc-800/40",
+                        facturesActive ? "text-indigo-300" : "text-zinc-300",
+                      )}
+                      aria-expanded={facturesExpanded}
+                    >
+                      <span className="flex items-center gap-3">
+                        <FileText className="size-5 shrink-0" strokeWidth={1.75} aria-hidden />
+                        <span>Devis &amp; Factures</span>
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          "size-4 shrink-0 text-zinc-500 transition-transform",
+                          facturesExpanded ? "rotate-0" : "-rotate-90",
+                        )}
+                        aria-hidden
+                      />
+                    </button>
+                    {facturesExpanded ? (
+                      <ul className="space-y-0.5">
+                        {facturesSubItems.map((sub) => (
+                          <li key={sub.href}>
+                            <Link
+                              href={sub.href}
+                              className={subLinkClass(isFacturesSubActive(sub.tab))}
+                            >
+                              <span
+                                className="size-1.5 shrink-0 rounded-full bg-zinc-600"
+                                aria-hidden
+                              />
+                              {sub.label}
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </>
+                )}
+              </div>
             ) : null}
 
             {showWhatsApp ? (
-              <button
-                type="button"
-                title="WhatsApp"
-                aria-label="WhatsApp"
-                aria-pressed={openSection === "whatsapp"}
-                onClick={() => {
-                  setOpenSection((prev) => (prev === "whatsapp" ? null : "whatsapp"));
-                  if (!whatsappActive) router.push(WHATSAPP_BASE);
-                }}
-                className={iconBtnClass(whatsappActive || openSection === "whatsapp")}
-              >
-                <MessageCircle className="size-6" strokeWidth={1.75} aria-hidden />
-              </button>
+              <div className="mt-1">
+                {collapsed ? (
+                  <Link
+                    href={WHATSAPP_BASE}
+                    className={linkClass(whatsappActive)}
+                    title="WhatsApp"
+                  >
+                    <MessageCircle
+                      className={cn(iconSize, "shrink-0")}
+                      strokeWidth={1.75}
+                      aria-hidden
+                    />
+                  </Link>
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setWhatsAppExpanded((v) => !v)}
+                      className={cn(
+                        "flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors hover:bg-zinc-800/40",
+                        whatsappActive ? "text-emerald-400" : "text-zinc-300",
+                      )}
+                      aria-expanded={whatsAppExpanded}
+                    >
+                      <span className="flex items-center gap-3">
+                        <MessageCircle
+                          className="size-5 shrink-0"
+                          strokeWidth={1.75}
+                          aria-hidden
+                        />
+                        <span>WhatsApp</span>
+                      </span>
+                      <ChevronDown
+                        className={cn(
+                          "size-4 shrink-0 text-zinc-500 transition-transform",
+                          whatsAppExpanded ? "rotate-0" : "-rotate-90",
+                        )}
+                        aria-hidden
+                      />
+                    </button>
+                    {whatsAppExpanded ? (
+                      <ul className="space-y-0.5">
+                        {whatsappSubItems.map((sub) => {
+                          const SubIcon = sub.icon;
+                          const subActive = sub.exact
+                            ? pathname === sub.href
+                            : pathname === sub.href ||
+                              Boolean(pathname?.startsWith(`${sub.href}/`));
+                          return (
+                            <li key={sub.href}>
+                              <Link href={sub.href} className={subLinkClass(subActive)}>
+                                <SubIcon className="size-3.5 shrink-0 opacity-80" aria-hidden />
+                                {sub.label}
+                              </Link>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    ) : null}
+                  </>
+                )}
+              </div>
             ) : null}
           </nav>
 
-          <div className="flex flex-col items-center gap-2 border-t border-zinc-800 py-3">
+          <div className={cn("border-t border-zinc-800", collapsed ? "px-0 py-2" : "p-2")}>
             {showParametres ? (
-              <button
-                type="button"
-                title="Paramètres"
-                aria-label="Paramètres"
-                aria-pressed={openSection === "parametres"}
-                onClick={() => {
-                  setOpenSection((prev) => (prev === "parametres" ? null : "parametres"));
-                  if (!parametresActive) router.push(`${PARAMETRES_BASE}?tab=profil`);
-                }}
-                className={iconBtnClass(parametresActive || openSection === "parametres")}
-              >
-                <Settings className="size-6" strokeWidth={1.75} aria-hidden />
-              </button>
+              collapsed ? (
+                <Link
+                  href={`${PARAMETRES_BASE}?tab=profil`}
+                  className={linkClass(parametresActive)}
+                  title="Paramètres"
+                >
+                  <Settings className={cn(iconSize, "shrink-0")} strokeWidth={1.75} aria-hidden />
+                </Link>
+              ) : (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setParametresExpanded((v) => !v)}
+                    className={cn(
+                      "mb-1 flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition-colors hover:bg-zinc-800/40",
+                      parametresActive ? "text-zinc-200" : "text-zinc-300",
+                    )}
+                    aria-expanded={parametresExpanded}
+                  >
+                    <span className="flex items-center gap-3">
+                      <Settings className="size-5 shrink-0" strokeWidth={1.75} aria-hidden />
+                      <span>Paramètres</span>
+                    </span>
+                    <ChevronDown
+                      className={cn(
+                        "size-4 shrink-0 text-zinc-500 transition-transform",
+                        parametresExpanded ? "rotate-0" : "-rotate-90",
+                      )}
+                      aria-hidden
+                    />
+                  </button>
+                  {parametresExpanded ? (
+                    <ul className="mb-1 space-y-0.5">
+                      {visibleParametresSubItems.map((sub) => {
+                        const currentTab = searchParams.get("tab") ?? "profil";
+                        const subActive = parametresActive && currentTab === sub.tab;
+                        return (
+                          <li key={sub.href}>
+                            <Link href={sub.href} className={subLinkClass(subActive)}>
+                              <span
+                                className="size-1.5 shrink-0 rounded-full bg-zinc-600"
+                                aria-hidden
+                              />
+                              {sub.label}
+                            </Link>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  ) : null}
+                </>
+              )
             ) : null}
             <button
               type="button"
-              title="Déconnexion"
-              aria-label="Déconnexion"
               onClick={() => setShowLogoutConfirm(true)}
-              className={iconBtnClass(false)}
+              title={collapsed ? "Déconnexion" : undefined}
+              className={cn(
+                "flex w-full items-center text-sm font-medium text-zinc-400 transition-colors",
+                collapsed
+                  ? "mx-auto size-10 justify-center rounded-lg hover:bg-zinc-800/35 hover:text-zinc-200 active:bg-zinc-800/50"
+                  : "gap-3 rounded-xl px-3 py-2.5 hover:bg-zinc-800/40 hover:text-zinc-200",
+              )}
             >
-              <LogOut className="size-6" strokeWidth={1.75} aria-hidden />
+              <LogOut className={cn(iconSize, "shrink-0")} strokeWidth={1.75} aria-hidden />
+              {!collapsed ? <span>Déconnexion</span> : null}
             </button>
           </div>
         </aside>
 
-        {/* Secondary section panel */}
-        {openSection && sectionTitle ? (
-          <aside className="flex w-[240px] shrink-0 flex-col border-r border-zinc-800 bg-zinc-950">
-            <div className="flex h-14 items-center border-b border-zinc-800 px-5">
-              <h2 className="text-lg font-semibold tracking-tight text-white">
-                {sectionTitle}
-              </h2>
-            </div>
-            <nav className="flex-1 overflow-y-auto px-3 py-4">
-              {openSection === "factures" ? (
-                <ul className="space-y-0.5">
-                  {facturesSubItems.map((sub) => (
-                    <li key={sub.href}>
-                      <Link
-                        href={sub.href}
-                        className={subLinkClass(isFacturesSubActive(sub.tab))}
-                      >
-                        {sub.label}
-                      </Link>
-                    </li>
-                  ))}
-                </ul>
-              ) : null}
-
-              {openSection === "whatsapp" ? (
-                <ul className="space-y-0.5">
-                  {whatsappSubItems.map((sub) => {
-                    const subActive = sub.exact
-                      ? pathname === sub.href
-                      : pathname === sub.href ||
-                        Boolean(pathname?.startsWith(`${sub.href}/`));
-                    return (
-                      <li key={sub.href}>
-                        <Link href={sub.href} className={subLinkClass(subActive)}>
-                          {sub.label}
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : null}
-
-              {openSection === "parametres" ? (
-                <ul className="space-y-0.5">
-                  {visibleParametresSubItems.map((sub) => {
-                    const currentTab = searchParams.get("tab") ?? "profil";
-                    const subActive = parametresActive && currentTab === sub.tab;
-                    return (
-                      <li key={sub.href}>
-                        <Link href={sub.href} className={subLinkClass(subActive)}>
-                          {sub.label}
-                        </Link>
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : null}
-            </nav>
-          </aside>
-        ) : null}
-
-        <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+        <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden">
           {pathname === WHATSAPP_BASE ? null : <DashboardTopBar />}
           <main
             className={
-              pathname === WHATSAPP_BASE
-                ? "flex min-h-0 flex-1 flex-col overflow-hidden bg-zinc-950"
-                : "min-h-0 flex-1 overflow-y-auto overscroll-y-contain bg-zinc-950"
+              isWhatsAppPath(pathname ?? "")
+                ? "flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-zinc-950"
+                : "app-scroll min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain bg-zinc-950"
             }
           >
             {children}

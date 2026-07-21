@@ -77,7 +77,10 @@ export function ConversationsPage() {
   }, [loadConversations]);
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-hidden" style={{ backgroundColor: "#0b141a" }}>
+    <div
+      className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
+      style={{ backgroundColor: "#0b141a" }}
+    >
       {apiUnavailable ? (
         <div className="shrink-0 flex items-center justify-center gap-2 border-b border-amber-800/40 bg-amber-950/50 px-4 py-2.5 text-center text-xs text-amber-100/90">
           <span className="size-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden />
@@ -88,9 +91,9 @@ export function ConversationsPage() {
         </div>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 gap-0 md:grid-cols-[minmax(320px,410px)_1fr]">
+      <div className="grid min-h-0 min-w-0 flex-1 gap-0 overflow-hidden md:grid-cols-[minmax(320px,410px)_1fr]">
         <div
-          className={`min-h-0 border-r border-[#222d34] ${selectedId ? "hidden md:block" : "block"}`}
+          className={`min-h-0 min-w-0 w-full max-w-full border-r border-[#222d34] ${selectedId ? "hidden md:block" : "block"}`}
         >
           <ConversationList
             conversations={conversations}
@@ -102,7 +105,7 @@ export function ConversationsPage() {
           />
         </div>
         <div
-          className={`min-h-0 ${selectedId ? "block" : "hidden md:block"}`}
+          className={`min-h-0 min-w-0 w-full max-w-full overflow-hidden ${selectedId ? "block" : "hidden md:block"}`}
         >
           <ChatThread
             conversation={selected}

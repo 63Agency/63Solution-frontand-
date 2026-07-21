@@ -15,7 +15,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <div className="min-h-dvh bg-zinc-950">
+    <div className="min-h-dvh bg-zinc-950 [color-scheme:dark]">
       <Suspense fallback={<DashboardShellFallback />}>
         <IndustryDashboardShell>{children}</IndustryDashboardShell>
       </Suspense>

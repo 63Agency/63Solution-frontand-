@@ -807,17 +807,17 @@ export function ChatThread({
   );
 
   return (
-    <div className="relative flex h-full min-h-0 flex-1 overflow-hidden">
-      <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+    <div className="relative flex h-full min-h-0 w-full min-w-0 flex-1 overflow-hidden">
+      <div className="relative flex h-full min-h-0 min-w-0 w-full max-w-full flex-1 flex-col overflow-hidden">
         <div
-          className="flex h-[59px] shrink-0 items-center gap-2 px-2 sm:px-4"
+          className="flex h-[59px] shrink-0 items-center gap-1 overflow-hidden px-2 sm:gap-2 sm:px-4"
           style={{ backgroundColor: WA.header }}
         >
           {onBack ? (
             <button
               type="button"
               onClick={onBack}
-              className="flex size-10 items-center justify-center rounded-full hover:bg-white/5 lg:hidden"
+              className="flex size-10 shrink-0 items-center justify-center rounded-full hover:bg-white/[0.06] active:bg-white/[0.1] active:scale-95 md:hidden"
               style={{ color: WA.icon }}
               aria-label="Retour"
             >
@@ -846,7 +846,7 @@ export function ChatThread({
           </button>
 
           {searchOpen ? (
-            <div className="flex min-w-0 flex-[1.2] items-center gap-1">
+            <div className="flex min-w-0 flex-1 items-center gap-1 sm:flex-[1.2]">
               <input
                 ref={searchInputRef}
                 value={threadSearch}
@@ -905,12 +905,14 @@ export function ChatThread({
             </div>
           ) : (
             <div className="flex shrink-0 items-center">
-              <HeaderIcon label="Appel vidéo" onClick={() => toast.message("Bientôt disponible")}>
-                <Video className="size-5" strokeWidth={1.75} />
-              </HeaderIcon>
-              <HeaderIcon label="Appeler" onClick={() => toast.message("Bientôt disponible")}>
-                <Phone className="size-5" strokeWidth={1.75} />
-              </HeaderIcon>
+              <div className="hidden items-center sm:flex">
+                <HeaderIcon label="Appel vidéo" onClick={() => toast.message("Bientôt disponible")}>
+                  <Video className="size-5" strokeWidth={1.75} />
+                </HeaderIcon>
+                <HeaderIcon label="Appeler" onClick={() => toast.message("Bientôt disponible")}>
+                  <Phone className="size-5" strokeWidth={1.75} />
+                </HeaderIcon>
+              </div>
               <HeaderIcon
                 label="Rechercher"
                 onClick={() => {
@@ -920,7 +922,11 @@ export function ChatThread({
               >
                 <Search className="size-5" strokeWidth={1.75} />
               </HeaderIcon>
-              <HeaderIcon label="Menu" onClick={() => toast.message("Bientôt disponible")}>
+              <HeaderIcon
+                label="Menu"
+                className="hidden sm:flex"
+                onClick={() => toast.message("Bientôt disponible")}
+              >
                 <MoreVertical className="size-5" strokeWidth={1.75} />
               </HeaderIcon>
             </div>
@@ -1251,18 +1257,23 @@ function HeaderIcon({
   children,
   onClick,
   disabled,
+  className,
 }: {
   label: string;
   children: React.ReactNode;
   onClick?: () => void;
   disabled?: boolean;
+  className?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
       disabled={disabled}
-      className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-white/5 disabled:opacity-40"
+      className={cn(
+        "flex size-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/[0.06] active:bg-white/[0.1] active:scale-95 disabled:opacity-40",
+        className,
+      )}
       style={{ color: "#aebac1" }}
       aria-label={label}
     >

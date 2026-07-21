@@ -95,11 +95,11 @@ export function ConversationList({
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col overflow-hidden"
+      className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden"
       style={{ backgroundColor: WA.bg, color: WA.text }}
     >
       {/* Header */}
-      <div className="shrink-0 px-4 pb-2 pt-3" style={{ backgroundColor: WA.panel }}>
+      <div className="shrink-0 px-3 pb-2 pt-3 sm:px-4" style={{ backgroundColor: WA.panel }}>
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-[22px] font-bold leading-none tracking-tight" style={{ color: WA.text }}>
             WhatsApp
@@ -107,14 +107,14 @@ export function ConversationList({
           <div className="flex items-center gap-1">
             <button
               type="button"
-              className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-white/5"
+              className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-white/[0.06] active:bg-white/[0.1] active:scale-95"
               aria-label="Nouvelle discussion"
             >
               <SquarePlus className="size-[22px]" style={{ color: WA.text }} strokeWidth={1.75} />
             </button>
             <button
               type="button"
-              className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-white/5"
+              className="flex size-10 items-center justify-center rounded-full transition-colors hover:bg-white/[0.06] active:bg-white/[0.1] active:scale-95"
               aria-label="Menu"
             >
               <MoreVertical className="size-[22px]" style={{ color: WA.text }} strokeWidth={1.75} />
@@ -228,7 +228,7 @@ export function ConversationList({
                   <button
                     type="button"
                     onClick={() => onSelect(c.id)}
-                    className="group flex w-full items-stretch gap-0 text-left transition-colors"
+                    className="group flex w-full min-w-0 items-stretch gap-0 text-left transition-colors"
                     style={{
                       backgroundColor: active ? WA.active : "transparent",
                     }}

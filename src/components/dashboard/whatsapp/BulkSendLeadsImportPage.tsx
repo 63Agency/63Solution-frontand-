@@ -84,7 +84,7 @@ function MultiSelectFilter({
         />
       </button>
       {open ? (
-        <div className="absolute left-0 right-0 z-20 mt-2 max-h-52 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-950 p-2 shadow-xl">
+        <div className="app-scroll absolute left-0 right-0 z-20 mt-2 max-h-52 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-950 p-2 shadow-xl">
           <button
             type="button"
             onClick={() => onChange(new Set())}
@@ -256,13 +256,13 @@ export function BulkSendLeadsImportPage() {
   };
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="mx-auto max-w-6xl space-y-5 px-6 py-6 md:px-8 md:py-8">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="flex items-start gap-4">
+    <div className="app-scroll min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto max-w-6xl space-y-5 px-3 py-4 pb-28 sm:px-6 sm:py-6 md:px-8 md:py-8 md:pb-8">
+        <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:gap-4">
             <Link
               href={BULK_SEND_PATH}
-              className="mt-1 inline-flex items-center gap-2 border border-zinc-700 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
+              className="inline-flex w-fit items-center gap-2 border border-zinc-700 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-300 transition hover:bg-zinc-800 hover:text-white"
             >
               <ArrowLeft className="size-4" aria-hidden />
               Retour
@@ -271,11 +271,13 @@ export function BulkSendLeadsImportPage() {
               <div className="flex size-11 shrink-0 items-center justify-center rounded-xl bg-sky-600/15 ring-1 ring-sky-500/25">
                 <UserPlus className="size-5 text-sky-400" aria-hidden />
               </div>
-              <div>
+              <div className="min-w-0">
                 <p className="font-mono text-[11px] uppercase tracking-widest text-zinc-500">
                   Envoi multiple
                 </p>
-                <h2 className="mt-1 text-2xl font-semibold text-white">Importer depuis les Leads</h2>
+                <h2 className="mt-1 text-xl font-semibold text-white sm:text-2xl">
+                  Importer depuis les Leads
+                </h2>
                 <p className="mt-1 text-sm text-zinc-500">
                   Sélectionnez les contacts ClickUp à ajouter à votre envoi WhatsApp.
                 </p>
@@ -397,7 +399,55 @@ export function BulkSendLeadsImportPage() {
                 : "Aucun lead ne correspond à votre recherche ou vos filtres."}
             </p>
           ) : (
-            <div className="max-h-[min(560px,calc(100vh-22rem))] overflow-y-auto">
+            <>
+              <div className="app-scroll max-h-[min(560px,calc(100vh-22rem))] space-y-2 overflow-y-auto p-3 md:hidden">
+                {filteredLeads.map((lead) => {
+                  const checked = selectedIds.has(lead.id);
+                  const displayName = cleanLeadDisplayName(lead.name);
+
+                  return (
+                    <button
+                      key={lead.id}
+                      type="button"
+                      onClick={() => toggleLead(lead.id)}
+                      className={cn(
+                        "w-full rounded-xl border p-3 text-left transition",
+                        checked
+                          ? "border-sky-500/40 bg-sky-950/40"
+                          : "border-zinc-800 bg-zinc-900/60 hover:bg-zinc-800/50",
+                      )}
+                    >
+                      <div className="flex items-start gap-3">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleLead(lead.id)}
+                          onClick={(e) => e.stopPropagation()}
+                          aria-label={`Sélectionner ${displayName}`}
+                          className="mt-0.5 size-4 shrink-0 rounded border-zinc-600 bg-zinc-950 text-sky-500"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-zinc-100">
+                            {displayName}
+                          </p>
+                          <p className="mt-0.5 truncate font-mono text-xs text-zinc-400">
+                            {formatWhatsAppPhone(lead.phone ?? "")}
+                          </p>
+                          <div className="mt-2 flex flex-wrap items-center gap-2">
+                            <LeadStatusBadge status={lead.status} />
+                            {lead.list_name ? (
+                              <span className="truncate text-xs text-zinc-500">
+                                {lead.list_name}
+                              </span>
+                            ) : null}
+                          </div>
+                        </div>
+                      </div>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="app-scroll hidden max-h-[min(560px,calc(100vh-22rem))] overflow-y-auto md:block">
               <table className="w-full table-fixed border-collapse text-sm">
                 <colgroup>
                   <col style={{ width: 40 }} />
@@ -481,19 +531,20 @@ export function BulkSendLeadsImportPage() {
                 </tbody>
               </table>
             </div>
+            </>
           )}
         </section>
 
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/50 px-5 py-4">
-          <p className="text-sm text-zinc-400">
+        <div className="sticky bottom-0 z-10 -mx-3 flex flex-col gap-3 rounded-none border-t border-zinc-800 bg-zinc-950/95 px-3 py-3 backdrop-blur-md sm:static sm:mx-0 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between sm:rounded-2xl sm:border sm:bg-zinc-900/50 sm:px-5 sm:py-4 sm:backdrop-blur-none">
+          <p className="text-center text-sm text-zinc-400 sm:text-left">
             <span className="font-semibold text-white">{selectedPhonesCount}</span> numéro
             {selectedPhonesCount !== 1 ? "s" : ""} sélectionné
             {selectedPhonesCount !== 1 ? "s" : ""}
           </p>
-          <div className="flex items-center gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:flex sm:items-center sm:gap-2">
             <Link
               href={BULK_SEND_PATH}
-              className="border border-zinc-700 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-300 transition hover:bg-zinc-800"
+              className="border border-zinc-700 px-4 py-2.5 text-center font-mono text-[11px] uppercase tracking-widest text-zinc-300 transition hover:bg-zinc-800 sm:py-2"
             >
               Annuler
             </Link>
@@ -501,10 +552,15 @@ export function BulkSendLeadsImportPage() {
               type="button"
               onClick={handleImport}
               disabled={selectedPhonesCount === 0}
-              className="border border-sky-500 bg-sky-600 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
+              className="border border-sky-500 bg-sky-600 px-4 py-2.5 font-mono text-[11px] uppercase tracking-widest text-white transition hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40 sm:py-2"
             >
-              Importer {selectedPhonesCount} numéro{selectedPhonesCount !== 1 ? "s" : ""} vers
-              l&apos;envoi multiple
+              <span className="hidden sm:inline">
+                Importer {selectedPhonesCount} numéro{selectedPhonesCount !== 1 ? "s" : ""} vers
+                l&apos;envoi multiple
+              </span>
+              <span className="sm:hidden">
+                Importer ({selectedPhonesCount})
+              </span>
             </button>
           </div>
         </div>

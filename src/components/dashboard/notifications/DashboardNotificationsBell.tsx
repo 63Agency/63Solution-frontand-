@@ -177,7 +177,7 @@ export function DashboardNotificationsBell() {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
+        <div className="app-scroll min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
           {error ? (
             <p className="px-4 py-6 text-center text-xs leading-relaxed text-amber-400/90">
               {error}
