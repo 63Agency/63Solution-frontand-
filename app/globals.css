@@ -208,11 +208,14 @@ html body .EmojiPickerReact *::-webkit-scrollbar-corner {
   background: #1f2c33 !important;
 }
 
-/* App-wide — slightly rounder buttons & button-like controls */
+/* App-wide — slightly rounder buttons, inputs & form controls */
 button:not([class*="rounded-full"]):not([class*="rounded-3xl"]):not([class*="rounded-["]),
 input[type="button"],
 input[type="submit"],
 input[type="reset"],
+input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="file"]):not([type="color"]):not([class*="rounded-full"]):not([class*="rounded-3xl"]):not([class*="rounded-["]),
+textarea:not([class*="rounded-full"]):not([class*="rounded-3xl"]):not([class*="rounded-["]),
+select:not([class*="rounded-full"]):not([class*="rounded-3xl"]):not([class*="rounded-["]),
 a[class*="tracking-widest"]:not([class*="rounded-full"]):not([class*="rounded-3xl"]):not([class*="rounded-["]) {
   border-radius: 0.75rem !important;
 }
