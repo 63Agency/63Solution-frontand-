@@ -219,3 +219,106 @@ select:not([class*="rounded-full"]):not([class*="rounded-3xl"]):not([class*="rou
 a[class*="tracking-widest"]:not([class*="rounded-full"]):not([class*="rounded-3xl"]):not([class*="rounded-["]) {
   border-radius: 0.75rem !important;
 }
+
+/* react-big-calendar — dark zinc theme */
+.meetings-calendar .rbc-calendar {
+  color: #e4e4e7;
+  font-family: inherit;
+}
+
+.meetings-calendar .rbc-toolbar {
+  display: none;
+}
+
+.meetings-calendar .rbc-month-view,
+.meetings-calendar .rbc-time-view,
+.meetings-calendar .rbc-agenda-view {
+  border: 1px solid #27272a;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: #09090b;
+}
+
+.meetings-calendar .rbc-header {
+  border-bottom: 1px solid #27272a;
+  border-left: 1px solid #27272a;
+  padding: 8px 4px;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #71717a;
+  background: #18181b;
+}
+
+.meetings-calendar .rbc-header + .rbc-header {
+  border-left: 1px solid #27272a;
+}
+
+.meetings-calendar .rbc-month-row + .rbc-month-row,
+.meetings-calendar .rbc-day-bg + .rbc-day-bg,
+.meetings-calendar .rbc-timeslot-group {
+  border-color: #27272a;
+}
+
+.meetings-calendar .rbc-off-range-bg {
+  background: #0a0a0a;
+}
+
+.meetings-calendar .rbc-today {
+  background: rgba(16, 185, 129, 0.08);
+}
+
+.meetings-calendar .rbc-date-cell {
+  padding: 4px 6px;
+  font-size: 12px;
+  color: #a1a1aa;
+}
+
+.meetings-calendar .rbc-now .rbc-button-link {
+  color: #34d399;
+  font-weight: 600;
+}
+
+.meetings-calendar .rbc-event {
+  padding: 2px 4px;
+  font-size: 11px;
+}
+
+.meetings-calendar .rbc-event:focus,
+.meetings-calendar .rbc-slot-selection {
+  outline: none;
+}
+
+.meetings-calendar .rbc-slot-selection {
+  background: rgba(16, 185, 129, 0.2);
+}
+
+.meetings-calendar .rbc-time-content,
+.meetings-calendar .rbc-time-header-content,
+.meetings-calendar .rbc-time-header.rbc-overflowing,
+.meetings-calendar .rbc-day-slot .rbc-time-slot {
+  border-color: #27272a;
+}
+
+.meetings-calendar .rbc-time-gutter,
+.meetings-calendar .rbc-label {
+  color: #71717a;
+  font-size: 11px;
+}
+
+.meetings-calendar .rbc-current-time-indicator {
+  background-color: #10b981;
+}
+
+.meetings-calendar .rbc-show-more {
+  color: #34d399;
+  background: transparent;
+  font-size: 11px;
+}
+
+.meetings-calendar .rbc-overlay {
+  background: #18181b;
+  border: 1px solid #3f3f46;
+  border-radius: 0.75rem;
+  color: #e4e4e7;
+}

@@ -12,6 +12,7 @@ import { DashboardNotificationsBell } from "./notifications/DashboardNotificatio
 import { fullName, profileInitials } from "./settings/settings-profile-utils";
 
 function getPageTitle(pathname: string): string {
+  if (pathname.startsWith("/dashboard/calendrier")) return "Calendrier";
   if (pathname.startsWith("/dashboard/parametres")) return "Profil";
   if (pathname.startsWith("/dashboard/conversations/envoi-multiple/import-leads")) {
     return "Importer des Leads";

@@ -7,7 +7,11 @@ import { getStoredUser } from "@/lib/auth/backend-login";
 import { isFullAdminRole } from "@/lib/auth/roles";
 import { fetchLeads, LEADS_PER_PAGE } from "@/lib/leads/api-leads";
 import { syncClickUpLeads } from "@/lib/leads/backend-clickup";
-import type { ClickUpLead } from "@/lib/leads/types";
+import type {
+  ClickUpLead,
+  LeadListOption,
+  LeadStatusOption,
+} from "@/lib/leads/types";
 import { cn } from "@/src/lib/utils";
 import { LeadStatusBadge } from "./LeadStatusBadge";
 import { LeadsTableSkeleton } from "./LeadsTableSkeleton";
@@ -44,9 +48,9 @@ export function LeadsPage() {
   const [total, setTotal] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
-  const [listNames, setListNames] = useState<string[]>([]);
-  const [statusOptions, setStatusOptions] = useState<string[]>([]);
-  const [selectedListName, setSelectedListName] = useState<string | null>(null);
+  const [listOptions, setListOptions] = useState<LeadListOption[]>([]);
+  const [statusOptions, setStatusOptions] = useState<LeadStatusOption[]>([]);
+  const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -66,7 +70,7 @@ export function LeadsPage() {
 
     try {
       const result = await fetchLeads({
-        listName: selectedListName,
+        listId: selectedListId,
         statuses: selectedStatuses,
         page: currentPage,
         pageSize: LEADS_PER_PAGE,
@@ -77,8 +81,8 @@ export function LeadsPage() {
       setTotalPages(result.totalPages);
 
       if (result.filters) {
-        setListNames(result.filters.listNames);
-        setStatusOptions(result.filters.statuses);
+        setListOptions(result.filters.lists ?? []);
+        setStatusOptions(result.filters.statuses ?? []);
       }
     } catch (err) {
       setLeads([]);
@@ -88,7 +92,7 @@ export function LeadsPage() {
     } finally {
       setLoading(false);
     }
-  }, [selectedListName, selectedStatuses, currentPage]);
+  }, [selectedListId, selectedStatuses, currentPage]);
 
   useEffect(() => {
     void loadLeads();
@@ -114,10 +118,18 @@ export function LeadsPage() {
   }, [statusMenuOpen]);
 
   const statusLabel = useMemo(() => {
-    if (selectedStatuses.length === 0) return "All statuses";
-    if (selectedStatuses.length === 1) return selectedStatuses[0];
-    return `${selectedStatuses.length} statuses`;
-  }, [selectedStatuses]);
+    if (selectedStatuses.length === 0) return "Tous les statuts";
+    if (selectedStatuses.length === 1) {
+      const opt = statusOptions.find((s) => s.value === selectedStatuses[0]);
+      return opt ? `${opt.value} (${opt.total})` : selectedStatuses[0];
+    }
+    return `${selectedStatuses.length} statuts`;
+  }, [selectedStatuses, statusOptions]);
+
+  const selectedListLabel = useMemo(() => {
+    if (!selectedListId) return null;
+    return listOptions.find((l) => l.listId === selectedListId)?.label ?? selectedListId;
+  }, [selectedListId, listOptions]);
 
   const pageItems = useMemo(
     () => buildPageItems(currentPage, totalPages),
@@ -192,6 +204,26 @@ export function LeadsPage() {
                 </button>
               ) : null}
 
+              <label className="inline-flex items-center gap-2 border border-zinc-700 bg-zinc-900 px-3 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-200">
+                <span className="text-zinc-500">Source</span>
+                <select
+                  value={selectedListId ?? ""}
+                  onChange={(e) => {
+                    setCurrentPage(1);
+                    setSelectedListId(e.target.value || null);
+                  }}
+                  className="max-w-[18rem] border-0 bg-transparent text-zinc-100 outline-none"
+                  aria-label="Filtrer par source / liste ClickUp"
+                >
+                  <option value="">Toutes les listes</option>
+                  {listOptions.map((list) => (
+                    <option key={list.listId} value={list.listId}>
+                      {list.label} ({list.total})
+                    </option>
+                  ))}
+                </select>
+              </label>
+
               <div ref={statusMenuRef} className="relative">
                 <button
                   type="button"
@@ -219,25 +251,28 @@ export function LeadsPage() {
                       }}
                       className="mb-1 w-full rounded px-2 py-1.5 text-left text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
                     >
-                      Clear status filter
+                      Tous les statuts
                     </button>
                     {statusOptions.length === 0 ? (
-                      <p className="px-2 py-2 text-xs text-zinc-500">No statuses available</p>
+                      <p className="px-2 py-2 text-xs text-zinc-500">Aucun statut</p>
                     ) : (
                       statusOptions.map((status) => {
-                        const checked = selectedStatuses.includes(status);
+                        const checked = selectedStatuses.includes(status.value);
                         return (
                           <label
-                            key={status}
+                            key={status.value}
                             className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800"
                           >
                             <input
                               type="checkbox"
                               checked={checked}
-                              onChange={() => toggleStatus(status)}
+                              onChange={() => toggleStatus(status.value)}
                               className="size-3.5 rounded border-zinc-600 bg-zinc-900 text-sky-500"
                             />
-                            <span className="truncate">{status}</span>
+                            <span className="min-w-0 flex-1 truncate">{status.value}</span>
+                            <span className="shrink-0 tabular-nums text-xs text-zinc-500">
+                              {status.total}
+                            </span>
                           </label>
                         );
                       })
@@ -246,42 +281,6 @@ export function LeadsPage() {
                 ) : null}
               </div>
             </div>
-          </div>
-
-          <div className="mb-5 flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={() => {
-                setCurrentPage(1);
-                setSelectedListName(null);
-              }}
-              className={cn(
-                "border px-4 py-2 font-mono text-[11px] uppercase tracking-widest transition",
-                selectedListName === null
-                  ? "border-zinc-700 bg-zinc-800 text-white"
-                  : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200",
-              )}
-            >
-              All lists
-            </button>
-            {listNames.map((listName) => (
-              <button
-                key={listName}
-                type="button"
-                onClick={() => {
-                  setCurrentPage(1);
-                  setSelectedListName(listName);
-                }}
-                className={cn(
-                  "border px-4 py-2 font-mono text-[11px] uppercase tracking-widest transition",
-                  selectedListName === listName
-                    ? "border-zinc-700 bg-zinc-800 text-white"
-                    : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200",
-                )}
-              >
-                {listName}
-              </button>
-            ))}
           </div>
 
           {error ? (
@@ -293,7 +292,7 @@ export function LeadsPage() {
               <UserPlus className="size-10 text-zinc-700" aria-hidden />
               <p className="text-sm font-medium text-zinc-300">No leads found</p>
               <p className="max-w-sm text-sm text-zinc-500">
-                {selectedListName || selectedStatuses.length > 0
+                {selectedListId || selectedStatuses.length > 0
                   ? "Try adjusting your filters to see more results."
                   : "Leads from ClickUp will appear here once synced to Supabase."}
               </p>
@@ -307,7 +306,7 @@ export function LeadsPage() {
                       <th className="pb-3 pr-4 font-normal">Name</th>
                       <th className="pb-3 pr-4 font-normal">Phone</th>
                       <th className="pb-3 pr-4 font-normal">Status</th>
-                      <th className="pb-3 pr-4 font-normal">List name</th>
+                      <th className="pb-3 pr-4 font-normal">Source</th>
                       <th className="pb-3 font-normal">Created at</th>
                     </tr>
                   </thead>
@@ -322,7 +321,15 @@ export function LeadsPage() {
                         <td className="py-3 pr-4">
                           <LeadStatusBadge status={lead.status} />
                         </td>
-                        <td className="py-3 pr-4">{lead.list_name || "—"}</td>
+                        <td className="py-3 pr-4">
+                          {lead.list_name ? (
+                            <span className="inline-flex max-w-[12rem] truncate rounded-full border border-sky-500/25 bg-sky-500/10 px-2.5 py-0.5 text-[11px] font-medium text-sky-300">
+                              {lead.list_name}
+                            </span>
+                          ) : (
+                            "—"
+                          )}
+                        </td>
                         <td className="py-3 text-zinc-400">{formatCreatedAt(lead.created_at)}</td>
                       </tr>
                     ))}
@@ -330,11 +337,14 @@ export function LeadsPage() {
                 </table>
               </div>
 
-              {totalPages > 1 ? (
-                <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 pt-3 font-mono text-[11px] uppercase tracking-widest text-zinc-400">
-                  <p>
-                    Page {currentPage} / {totalPages} — {total} lead{total !== 1 ? "s" : ""}
-                  </p>
+              <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 pt-3 font-mono text-[11px] uppercase tracking-widest text-zinc-400">
+                <p>
+                  Page {currentPage} / {totalPages} — {total} lead{total !== 1 ? "s" : ""}
+                  {selectedListLabel ? ` · ${selectedListLabel}` : ""}
+                  {" · "}
+                  {LEADS_PER_PAGE}/page
+                </p>
+                {totalPages > 1 ? (
                   <div className="flex items-center gap-1.5">
                     <button
                       type="button"
@@ -374,8 +384,8 @@ export function LeadsPage() {
                       Suivant
                     </button>
                   </div>
-                </div>
-              ) : null}
+                ) : null}
+              </div>
             </>
           )}
         </section>

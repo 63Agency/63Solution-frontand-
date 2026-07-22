@@ -1,9 +1,12 @@
 import type { ClickUpLead, LeadsApiResponse } from "./types";
 
-export const LEADS_PER_PAGE = 15;
+export const LEADS_PER_PAGE = 25;
 export const LEADS_IMPORT_PAGE_SIZE = 500;
 
 export type FetchLeadsParams = {
+  /** Filter by ClickUp list_id (preferred). */
+  listId?: string | null;
+  /** @deprecated use listId */
   listName?: string | null;
   statuses?: string[];
   hasPhone?: boolean;
@@ -13,13 +16,16 @@ export type FetchLeadsParams = {
 };
 
 export type FetchLeadsForImportParams = {
+  listId?: string | null;
+  /** @deprecated use listId */
   listName?: string | null;
   status?: string | null;
   signal?: AbortSignal;
 };
 
 export async function fetchLeads({
-  listName,
+  listId = null,
+  listName = null,
   statuses = [],
   hasPhone = false,
   page = 1,
@@ -28,7 +34,11 @@ export async function fetchLeads({
 }: FetchLeadsParams = {}): Promise<LeadsApiResponse> {
   const params = new URLSearchParams();
 
-  if (listName?.trim()) {
+  const resolvedListId = listId?.trim() || null;
+  if (resolvedListId) {
+    params.set("list_id", resolvedListId);
+  } else if (listName?.trim()) {
+    // Legacy fallback — prefer list_id
     params.set("list_name", listName.trim());
   }
 
@@ -59,8 +69,9 @@ export async function fetchLeads({
   return (await res.json()) as LeadsApiResponse;
 }
 
-/** Charge tous les leads avec téléphone via GET /api/leads (pagination auto, filtre côté client). */
+/** Charge tous les leads avec téléphone via GET /api/leads (pagination auto). */
 export async function fetchLeadsForImport({
+  listId = null,
   listName = null,
   status = null,
   signal,
@@ -71,8 +82,10 @@ export async function fetchLeadsForImport({
   const statuses = status?.trim() ? [status.trim()] : [];
 
   const first = await fetchLeads({
+    listId,
     listName,
     statuses,
+    hasPhone: true,
     page: 1,
     pageSize: LEADS_IMPORT_PAGE_SIZE,
     signal,
@@ -83,8 +96,10 @@ export async function fetchLeadsForImport({
 
   for (let page = 2; page <= first.totalPages; page += 1) {
     const next = await fetchLeads({
+      listId,
       listName,
       statuses,
+      hasPhone: true,
       page,
       pageSize: LEADS_IMPORT_PAGE_SIZE,
       signal,

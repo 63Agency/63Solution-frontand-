@@ -12,6 +12,7 @@ import {
   fetchFacturesList,
   type BackendDevisListItem,
 } from "../../../lib/devis/backend-devis";
+import { UpcomingMeetingsWidget } from "./meetings/UpcomingMeetingsWidget";
 
 function sumTotalTtc(rows: BackendDevisListItem[]): number {
   return rows.reduce((s, r) => s + (Number(r.totals?.totalTtc) || 0), 0);
@@ -110,6 +111,7 @@ export function IndustryHomeContent() {
         <TimeToggle active={timeRange} onChange={setTimeRange} />
       </div>
       <DashboardView timeRange={timeRange} businessKpis={businessKpis} />
+      <UpcomingMeetingsWidget />
     </div>
   );
 }

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useState } from "react";
 import {
+  Calendar,
   ChevronDown,
   FileText,
   LayoutDashboard,
@@ -29,6 +30,7 @@ import {
   fetchCurrentUser,
   getStoredUser,
 } from "../../../lib/auth/backend-login";
+import { fetchMeetingStats } from "@/lib/meetings/backend-meetings";
 import { DashboardTopBar } from "./DashboardTopBar";
 import { NotificationsProvider } from "./notifications/NotificationsProvider";
 
@@ -62,6 +64,7 @@ const allNavItems = [
   { href: "/dashboard", label: "Vue d'ensemble", icon: LayoutDashboard },
   { href: "/dashboard/clients", label: "Clients", icon: Users },
   { href: "/dashboard/leads", label: "Leads", icon: UserPlus },
+  { href: "/dashboard/calendrier", label: "Calendrier", icon: Calendar },
 ] as const;
 
 function isWhatsAppPath(pathname: string): boolean {
@@ -92,6 +95,7 @@ export function IndustryDashboardShell({
   const [facturesExpanded, setFacturesExpanded] = useState(true);
   const [parametresExpanded, setParametresExpanded] = useState(true);
   const [whatsAppMenuOpen, setWhatsAppMenuOpen] = useState(false);
+  const [todayMeetingsCount, setTodayMeetingsCount] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -136,6 +140,24 @@ export function IndustryDashboardShell({
   useEffect(() => {
     setWhatsAppMenuOpen(false);
   }, [pathname]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!roleResolved || !canAccessDashboardHref("/dashboard/calendrier", userRole)) {
+      setTodayMeetingsCount(0);
+      return;
+    }
+    void fetchMeetingStats()
+      .then((stats) => {
+        if (!cancelled) setTodayMeetingsCount(stats.today);
+      })
+      .catch(() => {
+        if (!cancelled) setTodayMeetingsCount(0);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname, roleResolved, userRole]);
 
   useEffect(() => {
     if (!whatsAppMenuOpen) return;
@@ -328,15 +350,34 @@ export function IndustryDashboardShell({
                   ? pathname === "/dashboard"
                   : pathname === item.href ||
                     Boolean(pathname?.startsWith(`${item.href}/`));
+              const showTodayBadge =
+                item.href === "/dashboard/calendrier" && todayMeetingsCount > 0;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
-                  title={collapsed ? item.label : undefined}
-                  className={linkClass(active)}
+                  title={
+                    collapsed
+                      ? showTodayBadge
+                        ? `${item.label} (${todayMeetingsCount})`
+                        : item.label
+                      : undefined
+                  }
+                  className={cn(linkClass(active), collapsed && "relative")}
                 >
                   <Icon className={cn(iconSize, "shrink-0")} strokeWidth={1.75} aria-hidden />
-                  {!collapsed ? <span>{item.label}</span> : null}
+                  {!collapsed ? (
+                    <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                      <span>{item.label}</span>
+                      {showTodayBadge ? (
+                        <span className="inline-flex min-w-5 items-center justify-center rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-bold tabular-nums text-emerald-300">
+                          {todayMeetingsCount > 99 ? "99+" : todayMeetingsCount}
+                        </span>
+                      ) : null}
+                    </span>
+                  ) : showTodayBadge ? (
+                    <span className="absolute right-1 top-1 size-2 rounded-full bg-emerald-400" />
+                  ) : null}
                 </Link>
               );
             })}

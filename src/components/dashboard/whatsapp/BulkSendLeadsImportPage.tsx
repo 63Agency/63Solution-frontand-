@@ -16,7 +16,11 @@ import {
 import { toast } from "sonner";
 import { fetchLeadsForImport } from "@/lib/leads/api-leads";
 import { cleanLeadDisplayName } from "@/lib/leads/phone-extract";
-import type { ClickUpLead } from "@/lib/leads/types";
+import type {
+  ClickUpLead,
+  LeadListOption,
+  LeadStatusOption,
+} from "@/lib/leads/types";
 import {
   BULK_SEND_PATH,
   stashBulkSendImport,
@@ -27,7 +31,7 @@ import { formatWhatsAppPhone } from "./whatsapp-utils";
 
 type MultiSelectFilterProps = {
   label: string;
-  options: string[];
+  options: { value: string; label: string }[];
   selected: Set<string>;
   onChange: (next: Set<string>) => void;
   placeholder: string;
@@ -63,7 +67,7 @@ function MultiSelectFilter({
     selected.size === 0
       ? placeholder
       : selected.size === 1
-        ? [...selected][0]
+        ? options.find((o) => o.value === [...selected][0])?.label ?? [...selected][0]
         : `${selected.size} sélectionnés`;
 
   return (
@@ -90,25 +94,25 @@ function MultiSelectFilter({
             onClick={() => onChange(new Set())}
             className="mb-1 w-full rounded px-2 py-1.5 text-left text-xs text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200"
           >
-            Tout effacer
+            Tous les statuts
           </button>
           {options.length === 0 ? (
             <p className="px-2 py-2 text-xs text-zinc-500">Aucune option</p>
           ) : (
             options.map((option) => {
-              const checked = selected.has(option);
+              const checked = selected.has(option.value);
               return (
                 <label
-                  key={option}
+                  key={option.value}
                   className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm text-zinc-300 hover:bg-zinc-800"
                 >
                   <input
                     type="checkbox"
                     checked={checked}
-                    onChange={() => toggle(option)}
+                    onChange={() => toggle(option.value)}
                     className="size-3.5 rounded border-zinc-600 bg-zinc-900 text-sky-500"
                   />
-                  <span className="truncate">{option}</span>
+                  <span className="truncate">{option.label}</span>
                 </label>
               );
             })
@@ -137,10 +141,10 @@ function leadMatchesSearch(lead: ClickUpLead, query: string): boolean {
 export function BulkSendLeadsImportPage() {
   const router = useRouter();
   const [allLeads, setAllLeads] = useState<ClickUpLead[]>([]);
-  const [listNames, setListNames] = useState<string[]>([]);
-  const [statusOptions, setStatusOptions] = useState<string[]>([]);
+  const [listOptions, setListOptions] = useState<LeadListOption[]>([]);
+  const [statusOptions, setStatusOptions] = useState<LeadStatusOption[]>([]);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [selectedLists, setSelectedLists] = useState<Set<string>>(new Set());
+  const [selectedListId, setSelectedListId] = useState<string | null>(null);
   const [selectedStatuses, setSelectedStatuses] = useState<Set<string>>(new Set());
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
@@ -153,7 +157,7 @@ export function BulkSendLeadsImportPage() {
     try {
       const result = await fetchLeadsForImport();
       setAllLeads(result.leads);
-      setListNames(result.filters?.listNames ?? []);
+      setListOptions(result.filters?.lists ?? []);
       setStatusOptions(result.filters?.statuses ?? []);
     } catch (e) {
       setAllLeads([]);
@@ -169,19 +173,19 @@ export function BulkSendLeadsImportPage() {
 
   const filteredLeads = useMemo(() => {
     return allLeads.filter((lead) => {
-      if (selectedLists.size > 0 && !selectedLists.has(lead.list_name)) return false;
+      if (selectedListId && lead.list_id !== selectedListId) return false;
       if (selectedStatuses.size > 0 && !selectedStatuses.has(lead.status)) return false;
       return leadMatchesSearch(lead, search);
     });
-  }, [allLeads, search, selectedLists, selectedStatuses]);
+  }, [allLeads, search, selectedListId, selectedStatuses]);
 
   const activeFiltersCount = useMemo(() => {
     let count = 0;
     if (search.trim()) count += 1;
-    if (selectedLists.size > 0) count += 1;
+    if (selectedListId) count += 1;
     if (selectedStatuses.size > 0) count += 1;
     return count;
-  }, [search, selectedLists.size, selectedStatuses.size]);
+  }, [search, selectedListId, selectedStatuses.size]);
 
   const selectedInFilterCount = useMemo(
     () => filteredLeads.filter((lead) => selectedIds.has(lead.id)).length,
@@ -238,7 +242,7 @@ export function BulkSendLeadsImportPage() {
 
   const clearFilters = () => {
     setSearch("");
-    setSelectedLists(new Set());
+    setSelectedListId(null);
     setSelectedStatuses(new Set());
   };
 
@@ -285,7 +289,15 @@ export function BulkSendLeadsImportPage() {
             </div>
           </div>
           <p className="rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-3 text-sm text-zinc-400">
-            <span className="font-semibold text-white">{allLeads.length}</span> leads avec téléphone
+            <span className="font-semibold text-white">{allLeads.length}</span> leads avec
+            téléphone
+            {listOptions.length > 0 ? (
+              <>
+                {" · "}
+                <span className="font-semibold text-white">{listOptions.length}</span> source
+                {listOptions.length !== 1 ? "s" : ""}
+              </>
+            ) : null}
           </p>
         </div>
 
@@ -328,16 +340,30 @@ export function BulkSendLeadsImportPage() {
               ) : null}
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
-              <MultiSelectFilter
-                label="Liste"
-                options={listNames}
-                selected={selectedLists}
-                onChange={setSelectedLists}
-                placeholder="Toutes les listes"
-              />
+              <label className="block space-y-1.5">
+                <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                  Source
+                </span>
+                <select
+                  value={selectedListId ?? ""}
+                  onChange={(e) => setSelectedListId(e.target.value || null)}
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-sky-600/80 focus:ring-2 focus:ring-sky-600/20"
+                  aria-label="Filtrer par source / liste ClickUp"
+                >
+                  <option value="">Toutes les listes</option>
+                  {listOptions.map((list) => (
+                    <option key={list.listId} value={list.listId}>
+                      {list.label} ({list.total})
+                    </option>
+                  ))}
+                </select>
+              </label>
               <MultiSelectFilter
                 label="Statut"
-                options={statusOptions}
+                options={statusOptions.map((s) => ({
+                  value: s.value,
+                  label: `${s.value} (${s.total})`,
+                }))}
                 selected={selectedStatuses}
                 onChange={setSelectedStatuses}
                 placeholder="Tous les statuts"
@@ -436,7 +462,7 @@ export function BulkSendLeadsImportPage() {
                           <div className="mt-2 flex flex-wrap items-center gap-2">
                             <LeadStatusBadge status={lead.status} />
                             {lead.list_name ? (
-                              <span className="truncate text-xs text-zinc-500">
+                              <span className="inline-flex max-w-full truncate rounded-full border border-sky-500/25 bg-sky-500/10 px-2 py-0.5 text-[10px] font-medium text-sky-300">
                                 {lead.list_name}
                               </span>
                             ) : null}
@@ -470,7 +496,7 @@ export function BulkSendLeadsImportPage() {
                     <th className="px-3 align-middle">Nom</th>
                     <th className="px-3 align-middle">Téléphone</th>
                     <th className="px-3 align-middle">Statut</th>
-                    <th className="px-3 align-middle">Liste</th>
+                    <th className="px-3 align-middle">Source</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-zinc-800/60">
@@ -518,12 +544,16 @@ export function BulkSendLeadsImportPage() {
                           <LeadStatusBadge status={lead.status} />
                         </td>
                         <td className="px-3 align-middle">
-                          <span
-                            className="block truncate text-[12px] text-zinc-500"
-                            title={lead.list_name || undefined}
-                          >
-                            {lead.list_name || "—"}
-                          </span>
+                          {lead.list_name ? (
+                            <span
+                              className="inline-flex max-w-full truncate rounded-full border border-sky-500/25 bg-sky-500/10 px-2.5 py-0.5 text-[11px] font-medium text-sky-300"
+                              title={lead.list_name}
+                            >
+                              {lead.list_name}
+                            </span>
+                          ) : (
+                            <span className="text-[12px] text-zinc-500">—</span>
+                          )}
                         </td>
                       </tr>
                     );

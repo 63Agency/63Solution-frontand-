@@ -1,0 +1,322 @@
+"use client";
+
+import { useState } from "react";
+import {
+  Bell,
+  CheckCircle2,
+  Loader2,
+  Mail,
+  MessageCircle,
+  Pencil,
+  Trash2,
+  UserX,
+  X,
+  XCircle,
+} from "lucide-react";
+import { toast } from "sonner";
+import {
+  deleteMeeting,
+  sendMeetingReminder,
+  updateMeeting,
+} from "@/lib/meetings/backend-meetings";
+import { formatMeetingDateTime } from "@/lib/meetings/meeting-datetime";
+import type { Meeting, MeetingStatus } from "@/lib/meetings/types";
+import { cn } from "@/src/lib/utils";
+import { MeetingStatusBadge, ReminderBadge } from "./MeetingBadges";
+
+type Props = {
+  meeting: Meeting | null;
+  isAdmin: boolean;
+  onClose: () => void;
+  onEdit: (meeting: Meeting) => void;
+  onChanged: (meeting: Meeting | null) => void;
+};
+
+export function MeetingDetailPanel({
+  meeting,
+  isAdmin,
+  onClose,
+  onEdit,
+  onChanged,
+}: Props) {
+  const [busy, setBusy] = useState(false);
+  const [confirmReminder, setConfirmReminder] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  if (!meeting) return null;
+
+  const setStatus = async (status: MeetingStatus) => {
+    setBusy(true);
+    try {
+      const updated = await updateMeeting(meeting.id, { status });
+      toast.success("Statut mis à jour.");
+      onChanged(updated);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Mise à jour impossible.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReminder = async () => {
+    setBusy(true);
+    try {
+      await sendMeetingReminder(meeting.id);
+      toast.success("Rappel envoyé.");
+      setConfirmReminder(false);
+      onChanged({
+        ...meeting,
+        reminderWhatsappSent:
+          meeting.reminderWhatsappSent || Boolean(meeting.contactPhone),
+        reminderEmailSent:
+          meeting.reminderEmailSent || Boolean(meeting.contactEmail),
+      });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Envoi du rappel impossible.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setBusy(true);
+    try {
+      await deleteMeeting(meeting.id);
+      toast.success("Rendez-vous supprimé.");
+      setConfirmDelete(false);
+      onChanged(null);
+      onClose();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Suppression impossible.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <>
+      <button
+        type="button"
+        className="fixed inset-0 z-40 bg-black/55"
+        aria-label="Fermer le détail"
+        onClick={onClose}
+      />
+      <aside
+        className="fixed inset-y-0 right-0 z-50 flex w-full max-w-[420px] flex-col border-l border-zinc-800 bg-zinc-950 shadow-2xl"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Détail du rendez-vous"
+      >
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-zinc-800 px-4">
+          <h2 className="text-base font-semibold text-white">Rendez-vous</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex size-9 items-center justify-center rounded-xl text-zinc-400 hover:bg-zinc-800 hover:text-white"
+            aria-label="Fermer"
+          >
+            <X className="size-5" />
+          </button>
+        </div>
+
+        <div className="app-scroll min-h-0 flex-1 overflow-y-auto px-5 py-5">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="text-xl font-semibold text-white">{meeting.title}</h3>
+              <p className="mt-1 text-sm text-zinc-400">
+                {formatMeetingDateTime(meeting.meetingDate)}
+              </p>
+            </div>
+            <MeetingStatusBadge status={meeting.status} />
+          </div>
+
+          <dl className="mt-6 space-y-4 text-sm">
+            <div>
+              <dt className="text-[11px] uppercase tracking-wider text-zinc-500">
+                Contact
+              </dt>
+              <dd className="mt-1 text-zinc-100">{meeting.contactName}</dd>
+            </div>
+            <div>
+              <dt className="text-[11px] uppercase tracking-wider text-zinc-500">
+                Téléphone
+              </dt>
+              <dd className="mt-1 font-mono text-zinc-300">
+                {meeting.contactPhone || "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-[11px] uppercase tracking-wider text-zinc-500">
+                Email
+              </dt>
+              <dd className="mt-1 text-zinc-300">{meeting.contactEmail || "—"}</dd>
+            </div>
+            {meeting.notes ? (
+              <div>
+                <dt className="text-[11px] uppercase tracking-wider text-zinc-500">
+                  Notes
+                </dt>
+                <dd className="mt-1 whitespace-pre-wrap text-zinc-300">
+                  {meeting.notes}
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+
+          <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+              Rappels
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <ReminderBadge label="WhatsApp" sent={meeting.reminderWhatsappSent} />
+              <ReminderBadge label="Email" sent={meeting.reminderEmailSent} />
+            </div>
+            <div className="mt-3 space-y-1.5 text-xs text-zinc-500">
+              <p className="flex items-center gap-2">
+                <MessageCircle className="size-3.5" />
+                WhatsApp :{" "}
+                {meeting.reminderWhatsappSent ? "envoyé" : "pas encore envoyé"}
+              </p>
+              <p className="flex items-center gap-2">
+                <Mail className="size-3.5" />
+                Email :{" "}
+                {meeting.reminderEmailSent ? "envoyé" : "pas encore envoyé"}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-6">
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+              Statut rapide
+            </p>
+            <div className="grid grid-cols-1 gap-2">
+              <button
+                type="button"
+                disabled={busy || meeting.status === "done"}
+                onClick={() => void setStatus("done")}
+                className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
+              >
+                <CheckCircle2 className="size-4 text-emerald-400" />
+                Marquer comme fait
+              </button>
+              <button
+                type="button"
+                disabled={busy || meeting.status === "cancelled"}
+                onClick={() => void setStatus("cancelled")}
+                className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
+              >
+                <XCircle className="size-4 text-red-400" />
+                Annulé
+              </button>
+              <button
+                type="button"
+                disabled={busy || meeting.status === "no_show"}
+                onClick={() => void setStatus("no_show")}
+                className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
+              >
+                <UserX className="size-4 text-amber-400" />
+                No-show
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="shrink-0 space-y-2 border-t border-zinc-800 p-4">
+          {isAdmin ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setConfirmReminder(true)}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2.5 text-sm font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
+            >
+              <Bell className="size-4" />
+              Envoyer un rappel maintenant
+            </button>
+          ) : null}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => onEdit(meeting)}
+              className="inline-flex flex-1 items-center justify-center gap-2 rounded-xl border border-zinc-700 px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800"
+            >
+              <Pencil className="size-4" />
+              Modifier
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setConfirmDelete(true)}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-red-700/50 px-4 py-2.5 text-sm text-red-300 hover:bg-red-950/40"
+            >
+              <Trash2 className="size-4" />
+              Supprimer
+            </button>
+          </div>
+        </div>
+      </aside>
+
+      {confirmReminder ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
+            <h3 className="text-lg font-semibold text-white">Envoyer un rappel ?</h3>
+            <p className="mt-2 text-sm text-zinc-300">
+              Un rappel WhatsApp / email sera envoyé immédiatement pour «{" "}
+              {meeting.title} ».
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmReminder(false)}
+                className="border border-zinc-700 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-200 hover:bg-zinc-800"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleReminder()}
+                className="inline-flex items-center gap-2 border border-emerald-500 bg-emerald-600 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white hover:bg-emerald-500 disabled:opacity-50"
+              >
+                {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                Confirmer
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmDelete ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
+            <h3 className="text-lg font-semibold text-white">Supprimer ?</h3>
+            <p className="mt-2 text-sm text-zinc-300">
+              Cette action est définitive. Le rendez-vous « {meeting.title} »
+              sera supprimé.
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDelete(false)}
+                className="border border-zinc-700 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-200 hover:bg-zinc-800"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleDelete()}
+                className={cn(
+                  "inline-flex items-center gap-2 border border-red-700 bg-red-700/80 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white hover:bg-red-600 disabled:opacity-50",
+                )}
+              >
+                {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                Supprimer
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </>
+  );
+}

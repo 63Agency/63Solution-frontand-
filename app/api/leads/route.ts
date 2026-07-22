@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { mapClickUpLeadRow } from "@/lib/leads/types";
+import { mapClickUpLeadRow, parseLeadsFilterOptions } from "@/lib/leads/types";
 
-const DEFAULT_PAGE_SIZE = 15;
+const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
 const MAX_IMPORT_PAGE_SIZE = 500;
 
@@ -26,12 +26,6 @@ function parseStatuses(raw: string | null): string[] {
     .filter(Boolean);
 }
 
-function uniqueSorted(values: (string | null | undefined)[]): string[] {
-  return [...new Set(values.filter((value): value is string => Boolean(value?.trim())))].sort(
-    (a, b) => a.localeCompare(b, "fr"),
-  );
-}
-
 function parsePage(raw: string | null): number {
   const value = Number.parseInt(raw ?? "1", 10);
   return Number.isFinite(value) && value >= 1 ? value : 1;
@@ -40,7 +34,10 @@ function parsePage(raw: string | null): number {
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = request.nextUrl;
-    const listName = searchParams.get("list_name")?.trim() || null;
+    const listId =
+      searchParams.get("list_id")?.trim() ||
+      searchParams.get("listId")?.trim() ||
+      null;
     const statuses = parseStatuses(searchParams.get("status"));
     const hasPhone = parseHasPhone(searchParams.get("has_phone"));
     const page = parsePage(searchParams.get("page"));
@@ -56,8 +53,8 @@ export async function GET(request: NextRequest) {
       .order("created_at", { ascending: false })
       .range(from, to);
 
-    if (listName) {
-      query = query.eq("list_name", listName);
+    if (listId) {
+      query = query.eq("list_id", listId);
     }
 
     if (statuses.length === 1) {
@@ -72,10 +69,21 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const { data, error, count } = await query;
+    const [{ data, error, count }, filterRpc] = await Promise.all([
+      query,
+      supabase.rpc("get_leads_filter_options"),
+    ]);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    if (filterRpc.error) {
+      console.error("[leads] get_leads_filter_options failed:", filterRpc.error.message);
+      return NextResponse.json(
+        { error: filterRpc.error.message || "Filter options RPC failed" },
+        { status: 500 },
+      );
     }
 
     let leads = (data ?? []).map((row) => mapClickUpLeadRow(row as Record<string, unknown>));
@@ -86,19 +94,11 @@ export async function GET(request: NextRequest) {
 
     const total = count ?? leads.length;
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const filters = parseLeadsFilterOptions(filterRpc.data);
 
-    const [{ data: listRows, error: listError }, { data: statusRows, error: statusError }] =
-      await Promise.all([
-        supabase.from("clickup_leads").select("list_name"),
-        supabase.from("clickup_leads").select("status"),
-      ]);
-
-    if (listError || statusError) {
-      return NextResponse.json(
-        { error: listError?.message ?? statusError?.message ?? "Filter query failed" },
-        { status: 500 },
-      );
-    }
+    console.log(
+      `[leads] filter options: lists=${filters.lists.length} statuses=${filters.statuses.length}`,
+    );
 
     return NextResponse.json({
       leads,
@@ -106,10 +106,7 @@ export async function GET(request: NextRequest) {
       page,
       pageSize,
       totalPages,
-      filters: {
-        listNames: uniqueSorted((listRows ?? []).map((row) => row.list_name)),
-        statuses: uniqueSorted((statusRows ?? []).map((row) => row.status)),
-      },
+      filters,
     });
   } catch (error) {
     const message =
