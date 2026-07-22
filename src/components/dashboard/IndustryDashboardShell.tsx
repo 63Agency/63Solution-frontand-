@@ -91,6 +91,7 @@ export function IndustryDashboardShell({
   const [whatsAppExpanded, setWhatsAppExpanded] = useState(true);
   const [facturesExpanded, setFacturesExpanded] = useState(true);
   const [parametresExpanded, setParametresExpanded] = useState(true);
+  const [whatsAppMenuOpen, setWhatsAppMenuOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -131,6 +132,19 @@ export function IndustryDashboardShell({
     mq.addEventListener("change", apply);
     return () => mq.removeEventListener("change", apply);
   }, []);
+
+  useEffect(() => {
+    setWhatsAppMenuOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!whatsAppMenuOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setWhatsAppMenuOpen(false);
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [whatsAppMenuOpen]);
 
   const whatsappActive = isWhatsAppPath(pathname ?? "");
   const facturesActive = isFacturesPath(pathname ?? "");
@@ -261,9 +275,8 @@ export function IndustryDashboardShell({
       <div className="flex h-dvh max-h-dvh overflow-hidden bg-zinc-950 text-zinc-100 [color-scheme:dark]">
         <aside
           className={cn(
-            "flex shrink-0 flex-col border-r border-zinc-800 bg-zinc-950 transition-[width] duration-200",
+            "relative z-30 flex shrink-0 flex-col border-r border-zinc-800 bg-zinc-950 transition-[width] duration-200",
             collapsed ? "w-[72px]" : "w-64",
-            whatsappActive && "max-md:hidden",
           )}
         >
           <div
@@ -385,17 +398,20 @@ export function IndustryDashboardShell({
             {showWhatsApp ? (
               <div className="mt-1">
                 {collapsed ? (
-                  <Link
-                    href={WHATSAPP_BASE}
-                    className={linkClass(whatsappActive)}
+                  <button
+                    type="button"
+                    onClick={() => setWhatsAppMenuOpen((v) => !v)}
+                    className={linkClass(whatsappActive || whatsAppMenuOpen)}
                     title="WhatsApp"
+                    aria-expanded={whatsAppMenuOpen}
+                    aria-label="Menu WhatsApp"
                   >
                     <MessageCircle
                       className={cn(iconSize, "shrink-0")}
                       strokeWidth={1.75}
                       aria-hidden
                     />
-                  </Link>
+                  </button>
                 ) : (
                   <>
                     <button
@@ -519,6 +535,66 @@ export function IndustryDashboardShell({
             </button>
           </div>
         </aside>
+
+        {/* WhatsApp secondary menu (collapsed / mobile) */}
+        {whatsAppMenuOpen && collapsed ? (
+          <>
+            <button
+              type="button"
+              className="fixed inset-0 z-40 bg-black/50 md:bg-black/40"
+              aria-label="Fermer le menu WhatsApp"
+              onClick={() => setWhatsAppMenuOpen(false)}
+            />
+            <aside
+              className="fixed inset-y-0 left-[72px] z-50 flex w-[min(280px,calc(100vw-72px))] flex-col border-r border-zinc-800 bg-zinc-950 shadow-2xl"
+              role="dialog"
+              aria-label="Choisir une section WhatsApp"
+            >
+              <div className="flex h-14 items-center border-b border-zinc-800 px-4">
+                <p className="text-sm font-semibold text-white">WhatsApp</p>
+              </div>
+              <nav className="flex flex-1 flex-col gap-1 p-3">
+                {whatsappSubItems.map((sub) => {
+                  const SubIcon = sub.icon;
+                  const subActive = sub.exact
+                    ? pathname === sub.href
+                    : pathname === sub.href ||
+                      Boolean(pathname?.startsWith(`${sub.href}/`));
+                  return (
+                    <Link
+                      key={sub.href}
+                      href={sub.href}
+                      onClick={() => setWhatsAppMenuOpen(false)}
+                      className={cn(
+                        "flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-colors",
+                        subActive
+                          ? "bg-emerald-500/15 text-emerald-300"
+                          : "text-zinc-300 hover:bg-zinc-800/60 hover:text-white",
+                      )}
+                    >
+                      <span
+                        className={cn(
+                          "flex size-10 shrink-0 items-center justify-center rounded-xl",
+                          subActive ? "bg-emerald-500/20" : "bg-zinc-800",
+                        )}
+                      >
+                        <SubIcon className="size-5" strokeWidth={1.75} aria-hidden />
+                      </span>
+                      <span className="min-w-0">
+                        <span className="block">{sub.label}</span>
+                        <span className="mt-0.5 block text-xs font-normal text-zinc-500">
+                          {sub.exact
+                            ? "Lire et répondre aux messages"
+                            : "Envoyer à plusieurs contacts"}
+                        </span>
+                      </span>
+                    </Link>
+                  );
+                })}
+              </nav>
+            </aside>
+          </>
+        ) : null}
 
         <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden">
           {pathname === WHATSAPP_BASE ? null : <DashboardTopBar />}
