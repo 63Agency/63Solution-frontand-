@@ -269,6 +269,7 @@ export function IndustryDashboardShell({
   };
 
   const iconSize = collapsed ? "size-6" : "size-5";
+  const hideSidebarOnMobileWhatsApp = whatsappActive && !whatsAppMenuOpen;
 
   return (
     <NotificationsProvider>
@@ -277,6 +278,7 @@ export function IndustryDashboardShell({
           className={cn(
             "relative z-30 flex shrink-0 flex-col border-r border-zinc-800 bg-zinc-950 transition-[width] duration-200",
             collapsed ? "w-[72px]" : "w-64",
+            hideSidebarOnMobileWhatsApp && "max-md:hidden",
           )}
         >
           <div
@@ -594,6 +596,18 @@ export function IndustryDashboardShell({
               </nav>
             </aside>
           </>
+        ) : null}
+
+        {/* Reopen WhatsApp menu when sidebar is hidden on mobile */}
+        {hideSidebarOnMobileWhatsApp ? (
+          <button
+            type="button"
+            onClick={() => setWhatsAppMenuOpen(true)}
+            className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] left-3 z-40 flex size-12 items-center justify-center rounded-full bg-emerald-600 text-white shadow-lg shadow-emerald-900/40 md:hidden"
+            aria-label="Menu WhatsApp"
+          >
+            <MessageCircle className="size-6" strokeWidth={1.75} aria-hidden />
+          </button>
         ) : null}
 
         <div className="flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden">
