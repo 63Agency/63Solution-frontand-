@@ -33,8 +33,15 @@ export function ConversationsPage() {
       const list = await fetchWhatsAppConversations();
       setConversations(list);
       setApiUnavailable(false);
+      const isMobile =
+        typeof window !== "undefined" &&
+        window.matchMedia("(max-width: 767px)").matches;
       setSelectedId((prev) => {
+        // Keep current selection if it still exists
         if (prev && list.some((c) => c.id === prev)) return prev;
+        // Mobile: show conversation list first; never reopen first chat after back
+        if (isMobile) return null;
+        // Desktop: open first conversation when nothing valid is selected
         return list[0]?.id ?? null;
       });
     } catch (e) {
