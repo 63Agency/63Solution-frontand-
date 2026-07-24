@@ -11,6 +11,7 @@ export type Meeting = {
   id: string;
   leadId: string | null;
   title: string;
+  /** ISO timestamptz — API field `meetingDate` / DB `meeting_date`. */
   meetingDate: string;
   contactName: string;
   contactPhone: string | null;
@@ -19,6 +20,10 @@ export type Meeting = {
   reminderWhatsappSent: boolean;
   reminderEmailSent: boolean;
   notes: string | null;
+  meetLink: string | null;
+  meetSpace: string | null;
+  /** Minutes; API may omit — default 60 for calendar layout. */
+  durationMinutes: number;
   createdAt: string;
   updatedAt: string;
 };
@@ -26,7 +31,10 @@ export type Meeting = {
 export type MeetingStats = {
   today: number;
   thisWeek: number;
-  pending: number;
+  /** Scheduled / upcoming (API `pending`). */
+  upcoming: number;
+  /** API may expose `total`; falls back to upcoming + noShow when absent. */
+  total: number;
   noShow: number;
 };
 
@@ -94,3 +102,7 @@ export const MEETING_STATUS_COLORS: Record<
     calendar: "#f59e0b",
   },
 };
+
+export const DEFAULT_MEETING_DURATION_MINUTES = 60;
+
+export const MEETING_DURATION_OPTIONS = [15, 30, 45, 60, 90, 120] as const;

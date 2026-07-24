@@ -2,10 +2,10 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { CalendarDays, Loader2 } from "lucide-react";
+import { CalendarDays, ExternalLink, Loader2 } from "lucide-react";
 import { fetchUpcomingMeetings } from "@/lib/meetings/backend-meetings";
+import { formatMeetingTime } from "@/lib/meetings/meeting-datetime";
 import type { Meeting } from "@/lib/meetings/types";
-import { MeetingStatusBadge } from "./MeetingBadges";
 
 export function UpcomingMeetingsWidget() {
   const [meetings, setMeetings] = useState<Meeting[]>([]);
@@ -70,30 +70,35 @@ export function UpcomingMeetingsWidget() {
         </p>
       ) : (
         <ul className="mt-4 divide-y divide-zinc-800">
-          {meetings.map((m) => {
-            const d = new Date(m.meetingDate);
-            return (
-              <li key={m.id} className="flex items-start justify-between gap-3 py-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium text-zinc-100">
-                    {m.title}
-                  </p>
-                  <p className="mt-0.5 truncate text-xs text-zinc-500">
-                    {m.contactName} ·{" "}
-                    {d.toLocaleString("fr-FR", {
-                      timeZone: "Africa/Casablanca",
-                      weekday: "short",
-                      day: "2-digit",
-                      month: "short",
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </p>
-                </div>
-                <MeetingStatusBadge status={m.status} />
-              </li>
-            );
-          })}
+          {meetings.map((m) => (
+            <li
+              key={m.id}
+              className="flex items-center justify-between gap-3 py-3"
+            >
+              <div className="min-w-0">
+                <p className="font-mono text-xs tabular-nums text-emerald-400">
+                  {formatMeetingTime(m.meetingDate)}
+                </p>
+                <p className="mt-0.5 truncate text-sm font-medium text-zinc-100">
+                  {m.contactName}
+                </p>
+                <p className="truncate text-xs text-zinc-500">{m.title}</p>
+              </div>
+              {m.meetLink ? (
+                <a
+                  href={m.meetLink}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20"
+                >
+                  <ExternalLink className="size-3.5" />
+                  Meet
+                </a>
+              ) : (
+                <span className="shrink-0 text-xs text-zinc-600">—</span>
+              )}
+            </li>
+          ))}
         </ul>
       )}
     </div>

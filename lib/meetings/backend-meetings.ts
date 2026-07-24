@@ -7,7 +7,7 @@ import type {
   MeetingStatus,
   UpdateMeetingPayload,
 } from "./types";
-import { MEETING_STATUSES } from "./types";
+import { DEFAULT_MEETING_DURATION_MINUTES, MEETING_STATUSES } from "./types";
 
 function buildAuthHeaders(): Record<string, string> {
   const token = getStoredAccessToken();
@@ -54,6 +54,19 @@ function parseMeeting(row: unknown): Meeting | null {
     ? statusRaw
     : "scheduled";
 
+  const durationRaw = r.durationMinutes ?? r.duration_minutes;
+  const durationParsed =
+    typeof durationRaw === "number"
+      ? durationRaw
+      : Number.parseInt(String(durationRaw ?? ""), 10);
+  const durationMinutes =
+    Number.isFinite(durationParsed) && durationParsed > 0
+      ? durationParsed
+      : DEFAULT_MEETING_DURATION_MINUTES;
+
+  const meetLinkRaw = r.meetLink ?? r.meet_link;
+  const meetSpaceRaw = r.meetSpace ?? r.meet_space;
+
   return {
     id,
     leadId:
@@ -76,10 +89,16 @@ function parseMeeting(row: unknown): Meeting | null {
       r.reminderWhatsappSent ?? r.reminder_whatsapp_sent,
     ),
     reminderEmailSent: Boolean(r.reminderEmailSent ?? r.reminder_email_sent),
-    notes:
-      r.notes == null || r.notes === ""
+    notes: r.notes == null || r.notes === "" ? null : String(r.notes),
+    meetLink:
+      meetLinkRaw == null || meetLinkRaw === ""
         ? null
-        : String(r.notes),
+        : String(meetLinkRaw).trim(),
+    meetSpace:
+      meetSpaceRaw == null || meetSpaceRaw === ""
+        ? null
+        : String(meetSpaceRaw).trim(),
+    durationMinutes,
     createdAt: String(r.createdAt ?? r.created_at ?? ""),
     updatedAt: String(r.updatedAt ?? r.updated_at ?? ""),
   };
@@ -170,12 +189,31 @@ export async function fetchMeetingStats(): Promise<MeetingStats> {
     throw new Error("Réponse stats rendez-vous invalide.");
   }
 
-  return {
-    today: typeof raw.today === "number" ? raw.today : 0,
-    thisWeek: typeof raw.thisWeek === "number" ? raw.thisWeek : 0,
-    pending: typeof raw.pending === "number" ? raw.pending : 0,
-    noShow: typeof raw.noShow === "number" ? raw.noShow : 0,
-  };
+  const today = typeof raw.today === "number" ? raw.today : 0;
+  const thisWeek =
+    typeof raw.thisWeek === "number"
+      ? raw.thisWeek
+      : typeof raw.this_week === "number"
+        ? raw.this_week
+        : 0;
+  const upcoming =
+    typeof raw.upcoming === "number"
+      ? raw.upcoming
+      : typeof raw.pending === "number"
+        ? raw.pending
+        : 0;
+  const noShow =
+    typeof raw.noShow === "number"
+      ? raw.noShow
+      : typeof raw.no_show === "number"
+        ? raw.no_show
+        : 0;
+  const total =
+    typeof raw.total === "number"
+      ? raw.total
+      : upcoming + noShow;
+
+  return { today, thisWeek, upcoming, total, noShow };
 }
 
 export async function createMeeting(
@@ -233,4 +271,22 @@ export async function sendMeetingReminder(id: string): Promise<unknown> {
   );
   if (!res.ok) return parseApiError(res, `POST /meetings/${id}/send-reminder`);
   return res.json().catch(() => ({ ok: true }));
+}
+
+export async function regenerateMeetingMeetLink(id: string): Promise<Meeting> {
+  const base = requireApiBase();
+  const res = await fetch(
+    `${base}/meetings/${encodeURIComponent(id)}/regenerate-meet`,
+    {
+      method: "POST",
+      headers: buildAuthHeaders(),
+      credentials: "include",
+    },
+  );
+  if (!res.ok) {
+    return parseApiError(res, `POST /meetings/${id}/regenerate-meet`);
+  }
+  const meeting = parseMeeting(await res.json().catch(() => null));
+  if (!meeting) throw new Error("Réponse régénération Meet invalide.");
+  return meeting;
 }

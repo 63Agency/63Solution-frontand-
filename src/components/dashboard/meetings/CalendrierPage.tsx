@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Eye,
+  ExternalLink,
   Loader2,
   Plus,
 } from "lucide-react";
@@ -25,8 +26,13 @@ import {
   fetchMeetingStats,
   fetchMeetings,
 } from "@/lib/meetings/backend-meetings";
-import { calendarRangeIso, casablancaDayKey } from "@/lib/meetings/meeting-datetime";
 import {
+  calendarRangeIso,
+  casablancaDayKey,
+  formatMeetingDateTime,
+} from "@/lib/meetings/meeting-datetime";
+import {
+  DEFAULT_MEETING_DURATION_MINUTES,
   MEETING_STATUS_COLORS,
   MEETING_STATUS_LABELS,
   MEETING_STATUSES,
@@ -64,9 +70,14 @@ type DayFilter = "today" | "tomorrow" | "week" | "date" | "all";
 const emptyStats: MeetingStats = {
   today: 0,
   thisWeek: 0,
-  pending: 0,
+  upcoming: 0,
+  total: 0,
   noShow: 0,
 };
+
+/** Week grid: 08:00–20:00 local. */
+const WEEK_MIN = new Date(1970, 0, 1, 8, 0, 0);
+const WEEK_MAX = new Date(1970, 0, 1, 20, 0, 0);
 
 function EventChip({ event }: EventProps<CalendarEvent>) {
   const status = event.resource.status;
@@ -115,11 +126,15 @@ export function CalendrierPage() {
     return () => mq.removeEventListener("change", apply);
   }, []);
 
+  const effectiveView: AppView = isMobile ? "list" : view;
+  /** Calendar only for Mois/Semaine on desktop; table always visible below. */
+  const showCalendar = !isMobile && effectiveView !== "list";
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const range =
-        view === "list"
+        effectiveView === "list"
           ? {
               from: new Date(
                 Date.now() - 30 * 24 * 60 * 60 * 1000,
@@ -149,7 +164,7 @@ export function CalendrierPage() {
     } finally {
       setLoading(false);
     }
-  }, [calendarDate, statusFilter, view]);
+  }, [calendarDate, statusFilter, effectiveView]);
 
   useEffect(() => {
     void load();
@@ -159,7 +174,8 @@ export function CalendrierPage() {
     () =>
       meetings.map((m) => {
         const start = new Date(m.meetingDate);
-        const end = new Date(start.getTime() + 60 * 60 * 1000);
+        const mins = m.durationMinutes || DEFAULT_MEETING_DURATION_MINUTES;
+        const end = new Date(start.getTime() + mins * 60 * 1000);
         return {
           id: m.id,
           title: m.title,
@@ -197,7 +213,7 @@ export function CalendrierPage() {
     });
   }, [meetings, dayFilter, customDate, listSortAsc]);
 
-  const rbcView: View = view === "week" ? "week" : "month";
+  const rbcView: View = effectiveView === "week" ? "week" : "month";
 
   const openCreate = (date?: Date) => {
     setEditing(null);
@@ -295,8 +311,12 @@ export function CalendrierPage() {
               value: stats.thisWeek,
               color: "text-emerald-400",
             },
-            { label: "En attente", value: stats.pending, color: "text-sky-400" },
-            { label: "No-show", value: stats.noShow, color: "text-amber-400" },
+            {
+              label: "À venir",
+              value: stats.upcoming,
+              color: "text-sky-400",
+            },
+            { label: "Total", value: stats.total, color: "text-zinc-200" },
           ].map((card) => (
             <div
               key={card.label}
@@ -333,7 +353,7 @@ export function CalendrierPage() {
                 className={cn(
                   "rounded-lg px-4 py-2 text-sm font-medium transition",
                   tab.hideMobile && "hidden sm:inline-flex",
-                  view === tab.id
+                  effectiveView === tab.id
                     ? "bg-zinc-800 text-white"
                     : "text-zinc-500 hover:text-zinc-300",
                 )}
@@ -368,7 +388,9 @@ export function CalendrierPage() {
             <Loader2 className="size-6 animate-spin text-emerald-500" />
             Chargement…
           </div>
-        ) : view === "list" || isMobile ? null : (
+        ) : null}
+
+        {!loading && showCalendar ? (
           <div className="meetings-calendar overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/40 p-3 sm:p-4">
             <div className="mb-3 flex items-center justify-between gap-2">
               <button
@@ -376,7 +398,7 @@ export function CalendrierPage() {
                 onClick={() =>
                   setCalendarDate((d) => {
                     const n = new Date(d);
-                    if (view === "week") n.setDate(n.getDate() - 7);
+                    if (effectiveView === "week") n.setDate(n.getDate() - 7);
                     else n.setMonth(n.getMonth() - 1);
                     return n;
                   })
@@ -398,7 +420,7 @@ export function CalendrierPage() {
                 onClick={() =>
                   setCalendarDate((d) => {
                     const n = new Date(d);
-                    if (view === "week") n.setDate(n.getDate() + 7);
+                    if (effectiveView === "week") n.setDate(n.getDate() + 7);
                     else n.setMonth(n.getMonth() + 1);
                     return n;
                   })
@@ -426,11 +448,15 @@ export function CalendrierPage() {
                 onSelectEvent={handleSelectEvent}
                 eventPropGetter={eventStyleGetter}
                 components={{ event: EventChip }}
+                min={effectiveView === "week" ? WEEK_MIN : undefined}
+                max={effectiveView === "week" ? WEEK_MAX : undefined}
+                step={30}
+                timeslots={2}
                 style={{ height: "100%" }}
               />
             </div>
           </div>
-        )}
+        ) : null}
 
         {!loading ? (
           <MeetingsFilteredTable
@@ -563,65 +589,52 @@ function MeetingsFilteredTable({
         </div>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[520px] border-collapse font-mono text-sm text-zinc-300">
+      <div className="overflow-x-auto rounded-2xl border border-zinc-800">
+        <table className="w-full min-w-[640px] border-collapse font-mono text-sm text-zinc-300">
           <thead>
-            <tr className="border-b border-zinc-700 text-left text-[10px] uppercase tracking-widest text-zinc-500">
-              <th className="pb-2 pr-4 font-normal">
+            <tr className="border-b border-zinc-700 bg-zinc-900/60 text-left text-[10px] uppercase tracking-widest text-zinc-500">
+              <th className="px-4 py-3 font-normal">
                 <button
                   type="button"
                   onClick={onToggleSort}
                   className="hover:text-zinc-300"
                 >
-                  Date {sortAsc ? "↑" : "↓"}
+                  Date / heure {sortAsc ? "↑" : "↓"}
                 </button>
               </th>
-              <th className="pb-2 pr-4 font-normal">Heure</th>
-              <th className="pb-2 pr-4 font-normal">Titre</th>
-              <th className="pb-2 pr-4 font-normal">Contact</th>
-              <th className="pb-2 pr-4 font-normal">Téléphone</th>
-              <th className="pb-2 pr-4 font-normal">Statut</th>
-              <th className="pb-2 pr-4 font-normal">Rappels</th>
-              <th className="pb-2 pl-4 text-right font-normal">Action</th>
+              <th className="px-4 py-3 font-normal">Contact</th>
+              <th className="px-4 py-3 font-normal">Titre</th>
+              <th className="px-4 py-3 font-normal">Statut</th>
+              <th className="px-4 py-3 font-normal">Meet</th>
+              <th className="px-4 py-3 text-right font-normal">Action</th>
             </tr>
           </thead>
           <tbody>
             {meetings.length === 0 ? (
               <tr>
-                <td colSpan={8} className="py-6 text-center text-zinc-500">
+                <td colSpan={6} className="px-4 py-8 text-center text-zinc-500">
                   Aucun rendez-vous pour ce filtre.
                 </td>
               </tr>
             ) : (
-              meetings.map((m) => {
-                const d = new Date(m.meetingDate);
-                return (
-                  <tr
-                    key={m.id}
-                    className="border-b border-zinc-800 transition hover:bg-zinc-800/50"
-                  >
-                    <td className="py-3 pr-4">
-                      {d.toLocaleDateString("fr-FR", {
-                        timeZone: "Africa/Casablanca",
-                        day: "2-digit",
-                        month: "short",
-                        year: "numeric",
-                      })}
-                    </td>
-                    <td className="py-3 pr-4">
-                      {d.toLocaleTimeString("fr-FR", {
-                        timeZone: "Africa/Casablanca",
-                        hour: "2-digit",
-                        minute: "2-digit",
-                      })}
-                    </td>
-                    <td className="py-3 pr-4 text-white">{m.title}</td>
-                    <td className="py-3 pr-4">{m.contactName}</td>
-                    <td className="py-3 pr-4">{m.contactPhone || "—"}</td>
-                    <td className="py-3 pr-4">
+              meetings.map((m) => (
+                <tr
+                  key={m.id}
+                  className="border-b border-zinc-800 transition hover:bg-zinc-800/50"
+                >
+                  <td className="px-4 py-3">
+                    <span className="block text-zinc-100">
+                      {formatMeetingDateTime(m.meetingDate)}
+                    </span>
+                    <span className="text-[11px] text-zinc-500">
+                      {m.durationMinutes} min
+                    </span>
+                  </td>
+                  <td className="px-4 py-3">{m.contactName}</td>
+                  <td className="px-4 py-3 text-white">{m.title}</td>
+                  <td className="px-4 py-3">
+                    <div className="flex flex-col gap-1">
                       <MeetingStatusBadge status={m.status} />
-                    </td>
-                    <td className="py-3 pr-4">
                       <div className="flex flex-wrap gap-1">
                         <ReminderBadge label="WA" sent={m.reminderWhatsappSent} />
                         <ReminderBadge
@@ -629,21 +642,36 @@ function MeetingsFilteredTable({
                           sent={m.reminderEmailSent}
                         />
                       </div>
-                    </td>
-                    <td className="py-3 pl-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => onSelect(m)}
-                        className="inline-flex items-center justify-center rounded border border-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-800"
-                        title="Voir le rendez-vous"
-                        aria-label="Voir le rendez-vous"
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    {m.meetLink ? (
+                      <a
+                        href={m.meetLink}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-emerald-400 hover:text-emerald-300"
                       >
-                        <Eye className="size-3.5" aria-hidden />
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })
+                        <ExternalLink className="size-3.5" />
+                        Lien
+                      </a>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => onSelect(m)}
+                      className="inline-flex items-center justify-center rounded border border-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-800"
+                      title="Voir le rendez-vous"
+                      aria-label="Voir le rendez-vous"
+                    >
+                      <Eye className="size-3.5" aria-hidden />
+                    </button>
+                  </td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>
@@ -651,4 +679,3 @@ function MeetingsFilteredTable({
     </section>
   );
 }
-

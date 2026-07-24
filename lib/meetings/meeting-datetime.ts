@@ -100,3 +100,42 @@ export function calendarRangeIso(date: Date): { from: string; to: string } {
 export function formatMonthTitle(date: Date): string {
   return format(toZonedTime(date, CASABLANCA_TZ), "MMMM yyyy", { locale: fr });
 }
+
+/** Split ISO → `{ date: yyyy-MM-dd, time: HH:mm }` in Casablanca. */
+export function isoToDateAndTime(iso: string): { date: string; time: string } {
+  try {
+    const d = parseISO(iso);
+    return {
+      date: formatInTimeZone(d, CASABLANCA_TZ, "yyyy-MM-dd"),
+      time: formatInTimeZone(d, CASABLANCA_TZ, "HH:mm"),
+    };
+  } catch {
+    return { date: "", time: "" };
+  }
+}
+
+/**
+ * Build ISO from Casablanca wall-clock date + time inputs.
+ * Interprets the pair as Africa/Casablanca local time.
+ */
+export function casablancaDateTimeToIso(date: string, time: string): string {
+  const d = date.trim();
+  const t = time.trim() || "09:00";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return "";
+  if (!/^\d{2}:\d{2}$/.test(t)) return "";
+
+  // Fixed offset approximation: Morocco is UTC+1 year-round (no DST since 2018).
+  const isoLocal = `${d}T${t}:00+01:00`;
+  const parsed = new Date(isoLocal);
+  if (Number.isNaN(parsed.getTime())) return "";
+  return parsed.toISOString();
+}
+
+/** International phone: optional +, then 8–15 digits (E.164-ish). */
+export function isValidInternationalPhone(raw: string): boolean {
+  const value = raw.trim();
+  if (!value) return false;
+  const digits = value.replace(/[^\d]/g, "");
+  if (digits.length < 8 || digits.length > 15) return false;
+  return /^\+?[\d\s().-]{8,20}$/.test(value);
+}

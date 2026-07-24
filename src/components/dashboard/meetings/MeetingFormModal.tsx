@@ -11,10 +11,14 @@ import {
   updateMeeting,
 } from "@/lib/meetings/backend-meetings";
 import {
-  datetimeLocalToIso,
-  isoToDatetimeLocal,
+  casablancaDateTimeToIso,
+  casablancaDayKey,
+  isoToDateAndTime,
+  isValidInternationalPhone,
 } from "@/lib/meetings/meeting-datetime";
 import {
+  DEFAULT_MEETING_DURATION_MINUTES,
+  MEETING_DURATION_OPTIONS,
   MEETING_STATUSES,
   MEETING_STATUS_LABELS,
   type Meeting,
@@ -24,7 +28,9 @@ import { cn } from "@/src/lib/utils";
 
 type FormState = {
   title: string;
-  meetingDateLocal: string;
+  date: string;
+  time: string;
+  durationMinutes: number;
   contactName: string;
   contactPhone: string;
   contactEmail: string;
@@ -34,15 +40,26 @@ type FormState = {
   manualContact: boolean;
 };
 
+function pad(n: number) {
+  return String(n).padStart(2, "0");
+}
+
 const emptyForm = (prefillDate?: Date | null): FormState => {
-  let meetingDateLocal = "";
+  let date = "";
+  let time = "10:00";
   if (prefillDate && !Number.isNaN(prefillDate.getTime())) {
-    const pad = (n: number) => String(n).padStart(2, "0");
-    meetingDateLocal = `${prefillDate.getFullYear()}-${pad(prefillDate.getMonth() + 1)}-${pad(prefillDate.getDate())}T${pad(prefillDate.getHours())}:${pad(prefillDate.getMinutes())}`;
+    date = `${prefillDate.getFullYear()}-${pad(prefillDate.getMonth() + 1)}-${pad(prefillDate.getDate())}`;
+    const h = prefillDate.getHours();
+    const m = prefillDate.getMinutes();
+    if (h !== 0 || m !== 0) {
+      time = `${pad(h)}:${pad(m)}`;
+    }
   }
   return {
     title: "",
-    meetingDateLocal,
+    date,
+    time,
+    durationMinutes: DEFAULT_MEETING_DURATION_MINUTES,
     contactName: "",
     contactPhone: "",
     contactEmail: "",
@@ -54,9 +71,12 @@ const emptyForm = (prefillDate?: Date | null): FormState => {
 };
 
 function meetingToForm(meeting: Meeting): FormState {
+  const { date, time } = isoToDateAndTime(meeting.meetingDate);
   return {
     title: meeting.title,
-    meetingDateLocal: isoToDatetimeLocal(meeting.meetingDate),
+    date,
+    time: time || "10:00",
+    durationMinutes: meeting.durationMinutes || DEFAULT_MEETING_DURATION_MINUTES,
     contactName: meeting.contactName,
     contactPhone: meeting.contactPhone ?? "",
     contactEmail: meeting.contactEmail ?? "",
@@ -165,7 +185,7 @@ export function MeetingFormModal({
     e.preventDefault();
     const title = form.title.trim();
     const contactName = form.contactName.trim();
-    const meetingDate = datetimeLocalToIso(form.meetingDateLocal);
+    const meetingDate = casablancaDateTimeToIso(form.date, form.time);
     const contactPhone = form.contactPhone.trim();
     const contactEmail = form.contactEmail.trim();
 
@@ -173,12 +193,22 @@ export function MeetingFormModal({
       toast.error("Le titre est requis.");
       return;
     }
+    if (!form.date.trim()) {
+      toast.error("La date est obligatoire.");
+      return;
+    }
     if (!meetingDate) {
-      toast.error("La date et l'heure sont requises.");
+      toast.error("Date ou heure invalide.");
       return;
     }
     if (!contactName) {
       toast.error("Le nom du contact est requis.");
+      return;
+    }
+    if (contactPhone && !isValidInternationalPhone(contactPhone)) {
+      toast.error(
+        "Téléphone invalide. Utilisez un format international (ex. +2126…).",
+      );
       return;
     }
     if (!contactPhone && !contactEmail) {
@@ -199,18 +229,23 @@ export function MeetingFormModal({
         leadId: form.manualContact ? undefined : form.leadId || undefined,
       };
 
-      const saved = isEdit && meeting
-        ? await updateMeeting(meeting.id, {
-            ...payload,
-            contactPhone: contactPhone || null,
-            contactEmail: contactEmail || null,
-            notes: form.notes.trim() || null,
-            leadId: form.manualContact ? null : form.leadId || null,
-          })
-        : await createMeeting(payload);
+      const saved =
+        isEdit && meeting
+          ? await updateMeeting(meeting.id, {
+              ...payload,
+              contactPhone: contactPhone || null,
+              contactEmail: contactEmail || null,
+              notes: form.notes.trim() || null,
+              leadId: form.manualContact ? null : form.leadId || null,
+            })
+          : await createMeeting(payload);
 
+      // Duration is UI/calendar-only until the API persists it.
+      onSaved({
+        ...saved,
+        durationMinutes: form.durationMinutes,
+      });
       toast.success(isEdit ? "Rendez-vous mis à jour." : "Rendez-vous créé.");
-      onSaved(saved);
       onClose();
     } catch (err) {
       toast.error(
@@ -257,18 +292,51 @@ export function MeetingFormModal({
             />
           </label>
 
-          <label className="block">
-            <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-              Date et heure *
-            </span>
-            <input
-              type="datetime-local"
-              value={form.meetingDateLocal}
-              onChange={(e) => setField("meetingDateLocal", e.target.value)}
-              required
-              className="mt-1.5 w-full rounded-xl border border-zinc-700 bg-zinc-950/80 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30"
-            />
-          </label>
+          <div className="grid gap-4 sm:grid-cols-3">
+            <label className="block sm:col-span-1">
+              <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Date *
+              </span>
+              <input
+                type="date"
+                value={form.date}
+                min={isEdit ? undefined : casablancaDayKey()}
+                onChange={(e) => setField("date", e.target.value)}
+                required
+                className="mt-1.5 w-full rounded-xl border border-zinc-700 bg-zinc-950/80 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Heure *
+              </span>
+              <input
+                type="time"
+                value={form.time}
+                onChange={(e) => setField("time", e.target.value)}
+                required
+                className="mt-1.5 w-full rounded-xl border border-zinc-700 bg-zinc-950/80 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Durée
+              </span>
+              <select
+                value={form.durationMinutes}
+                onChange={(e) =>
+                  setField("durationMinutes", Number(e.target.value))
+                }
+                className="mt-1.5 w-full rounded-xl border border-zinc-700 bg-zinc-950/80 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30"
+              >
+                {MEETING_DURATION_OPTIONS.map((mins) => (
+                  <option key={mins} value={mins}>
+                    {mins} min
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
 
           <div className="flex items-center justify-between gap-2">
             <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
@@ -285,9 +353,7 @@ export function MeetingFormModal({
               }
               className="text-xs text-emerald-400 hover:text-emerald-300"
             >
-              {form.manualContact
-                ? "Choisir un lead"
-                : "Saisir manuellement"}
+              {form.manualContact ? "Choisir un lead" : "Saisir manuellement"}
             </button>
           </div>
 
@@ -361,7 +427,7 @@ export function MeetingFormModal({
               <input
                 value={form.contactPhone}
                 onChange={(e) => setField("contactPhone", e.target.value)}
-                placeholder="2126…"
+                placeholder="+212 6 …"
                 className="mt-1.5 w-full rounded-xl border border-zinc-700 bg-zinc-950/80 px-3 py-2.5 font-mono text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30"
               />
             </label>

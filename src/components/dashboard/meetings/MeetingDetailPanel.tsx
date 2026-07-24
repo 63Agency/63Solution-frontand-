@@ -4,18 +4,23 @@ import { useState } from "react";
 import {
   Bell,
   CheckCircle2,
+  Copy,
+  ExternalLink,
   Loader2,
   Mail,
   MessageCircle,
   Pencil,
+  RefreshCw,
   Trash2,
   UserX,
+  Video,
   X,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
   deleteMeeting,
+  regenerateMeetingMeetLink,
   sendMeetingReminder,
   updateMeeting,
 } from "@/lib/meetings/backend-meetings";
@@ -42,6 +47,7 @@ export function MeetingDetailPanel({
   const [busy, setBusy] = useState(false);
   const [confirmReminder, setConfirmReminder] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmRegenerate, setConfirmRegenerate] = useState(false);
 
   if (!meeting) return null;
 
@@ -93,6 +99,32 @@ export function MeetingDetailPanel({
     }
   };
 
+  const handleCopyMeet = async () => {
+    if (!meeting.meetLink) return;
+    try {
+      await navigator.clipboard.writeText(meeting.meetLink);
+      toast.success("Lien Meet copié.");
+    } catch {
+      toast.error("Impossible de copier le lien.");
+    }
+  };
+
+  const handleRegenerate = async () => {
+    setBusy(true);
+    try {
+      const updated = await regenerateMeetingMeetLink(meeting.id);
+      toast.success("Lien Meet régénéré.");
+      setConfirmRegenerate(false);
+      onChanged(updated);
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "Régénération Meet impossible.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <>
       <button
@@ -125,6 +157,8 @@ export function MeetingDetailPanel({
               <h3 className="text-xl font-semibold text-white">{meeting.title}</h3>
               <p className="mt-1 text-sm text-zinc-400">
                 {formatMeetingDateTime(meeting.meetingDate)}
+                <span className="text-zinc-600"> · </span>
+                {meeting.durationMinutes} min
               </p>
             </div>
             <MeetingStatusBadge status={meeting.status} />
@@ -162,6 +196,41 @@ export function MeetingDetailPanel({
               </div>
             ) : null}
           </dl>
+
+          <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
+            <p className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+              <Video className="size-3.5" />
+              Google Meet
+            </p>
+            {meeting.meetLink ? (
+              <>
+                <p className="mt-2 break-all font-mono text-xs text-emerald-300/90">
+                  {meeting.meetLink}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void handleCopyMeet()}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-200 hover:bg-zinc-800"
+                  >
+                    <Copy className="size-3.5" />
+                    Copier
+                  </button>
+                  <a
+                    href={meeting.meetLink}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-1.5 text-xs font-medium text-emerald-300 hover:bg-emerald-500/20"
+                  >
+                    <ExternalLink className="size-3.5" />
+                    Rejoindre
+                  </a>
+                </div>
+              </>
+            ) : (
+              <p className="mt-2 text-sm text-zinc-500">Aucun lien Meet.</p>
+            )}
+          </div>
 
           <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
@@ -223,15 +292,26 @@ export function MeetingDetailPanel({
 
         <div className="shrink-0 space-y-2 border-t border-zinc-800 p-4">
           {isAdmin ? (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setConfirmReminder(true)}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2.5 text-sm font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
-            >
-              <Bell className="size-4" />
-              Envoyer un rappel maintenant
-            </button>
+            <>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setConfirmReminder(true)}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2.5 text-sm font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
+              >
+                <Bell className="size-4" />
+                Envoyer le rappel maintenant
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setConfirmRegenerate(true)}
+                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-700 px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+              >
+                <RefreshCw className="size-4" />
+                Régénérer le lien Meet
+              </button>
+            </>
           ) : null}
           <div className="flex gap-2">
             <button
@@ -280,6 +360,38 @@ export function MeetingDetailPanel({
               >
                 {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}
                 Confirmer
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmRegenerate ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4">
+          <div className="w-full max-w-md rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-2xl">
+            <h3 className="text-lg font-semibold text-white">
+              Régénérer le lien Meet ?
+            </h3>
+            <p className="mt-2 text-sm text-zinc-300">
+              L’ancien lien ne fonctionnera plus. Un nouveau lien unique sera
+              créé pour « {meeting.title} ».
+            </p>
+            <div className="mt-5 flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmRegenerate(false)}
+                className="border border-zinc-700 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-zinc-200 hover:bg-zinc-800"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void handleRegenerate()}
+                className="inline-flex items-center gap-2 border border-emerald-500 bg-emerald-600 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white hover:bg-emerald-500 disabled:opacity-50"
+              >
+                {busy ? <Loader2 className="size-3.5 animate-spin" /> : null}
+                Régénérer
               </button>
             </div>
           </div>
