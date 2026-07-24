@@ -29,7 +29,6 @@ import {
 import {
   calendarRangeIso,
   casablancaDayKey,
-  formatMeetingDateTime,
 } from "@/lib/meetings/meeting-datetime";
 import {
   DEFAULT_MEETING_DURATION_MINUTES,
@@ -41,7 +40,6 @@ import {
   type MeetingStatus,
 } from "@/lib/meetings/types";
 import { cn } from "@/src/lib/utils";
-import { MeetingStatusBadge, ReminderBadge } from "./MeetingBadges";
 import { MeetingDetailPanel } from "./MeetingDetailPanel";
 import { MeetingFormModal } from "./MeetingFormModal";
 import "react-big-calendar/lib/css/react-big-calendar.css";
@@ -525,6 +523,9 @@ function MeetingsFilteredTable({
   onToggleSort: () => void;
   onSelect: (m: Meeting) => void;
 }) {
+  const [currentPage, setCurrentPage] = useState(1);
+  const PER_PAGE = 10;
+
   const filterLabel =
     dayFilter === "today"
       ? "Aujourd'hui"
@@ -550,6 +551,34 @@ function MeetingsFilteredTable({
     { id: "all", label: "Tous" },
   ];
 
+  const totalPages = Math.max(1, Math.ceil(meetings.length / PER_PAGE));
+  const paginated = meetings.slice(
+    (currentPage - 1) * PER_PAGE,
+    currentPage * PER_PAGE,
+  );
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [dayFilter, customDate, meetings.length]);
+
+  useEffect(() => {
+    if (currentPage > totalPages) setCurrentPage(totalPages);
+  }, [currentPage, totalPages]);
+
+  const pageItems = useMemo<(number | "...")[]>(() => {
+    if (totalPages <= 3) {
+      return Array.from({ length: totalPages }, (_, i) => i + 1);
+    }
+    const items: (number | "...")[] = [1];
+    const start = Math.max(2, currentPage - 1);
+    const end = Math.min(totalPages - 1, currentPage + 1);
+    if (start > 2) items.push("...");
+    for (let page = start; page <= end; page += 1) items.push(page);
+    if (end < totalPages - 1) items.push("...");
+    items.push(totalPages);
+    return items;
+  }, [currentPage, totalPages]);
+
   return (
     <section className="min-h-[200px]">
       <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -561,17 +590,17 @@ function MeetingsFilteredTable({
         </div>
 
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          <div className="flex flex-wrap gap-1.5">
+          <div className="flex flex-wrap gap-2 font-mono text-[11px] uppercase tracking-widest">
             {filters.map((f) => (
               <button
                 key={f.id}
                 type="button"
                 onClick={() => onDayFilterChange(f.id)}
                 className={cn(
-                  "rounded-xl border px-3 py-1.5 text-xs font-medium transition",
+                  "border px-3 py-2 transition",
                   dayFilter === f.id
-                    ? "border-emerald-500/40 bg-emerald-500/15 text-emerald-300"
-                    : "border-zinc-700 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200",
+                    ? "border-zinc-700 bg-zinc-800 text-white"
+                    : "border-zinc-700 bg-zinc-900 text-zinc-400 hover:bg-zinc-800/60 hover:text-zinc-200",
                 )}
               >
                 {f.label}
@@ -583,99 +612,147 @@ function MeetingsFilteredTable({
               type="date"
               value={customDate}
               onChange={(e) => onCustomDateChange(e.target.value)}
-              className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-1.5 text-sm text-zinc-200 outline-none focus:border-emerald-500"
+              className="border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-200 outline-none focus:border-zinc-500"
             />
           ) : null}
         </div>
       </div>
 
-      <div className="overflow-x-auto rounded-2xl border border-zinc-800">
-        <table className="w-full min-w-[640px] border-collapse font-mono text-sm text-zinc-300">
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[520px] border-collapse font-mono text-sm text-zinc-300">
           <thead>
-            <tr className="border-b border-zinc-700 bg-zinc-900/60 text-left text-[10px] uppercase tracking-widest text-zinc-500">
-              <th className="px-4 py-3 font-normal">
+            <tr className="border-b border-zinc-700 text-left text-[10px] uppercase tracking-widest text-zinc-500">
+              <th className="pb-2 pr-4 font-normal">
                 <button
                   type="button"
                   onClick={onToggleSort}
                   className="hover:text-zinc-300"
                 >
-                  Date / heure {sortAsc ? "↑" : "↓"}
+                  Date {sortAsc ? "↑" : "↓"}
                 </button>
               </th>
-              <th className="px-4 py-3 font-normal">Contact</th>
-              <th className="px-4 py-3 font-normal">Titre</th>
-              <th className="px-4 py-3 font-normal">Statut</th>
-              <th className="px-4 py-3 font-normal">Meet</th>
-              <th className="px-4 py-3 text-right font-normal">Action</th>
+              <th className="pb-2 pr-4 font-normal">Heure</th>
+              <th className="pb-2 pr-4 font-normal">Contact</th>
+              <th className="pb-2 pr-4 font-normal">Titre</th>
+              <th className="pb-2 pr-4 font-normal">Statut</th>
+              <th className="pb-2 pl-4 text-right font-normal">Action</th>
             </tr>
           </thead>
           <tbody>
             {meetings.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-4 py-8 text-center text-zinc-500">
+                <td colSpan={6} className="py-6 text-center text-zinc-500">
                   Aucun rendez-vous pour ce filtre.
                 </td>
               </tr>
             ) : (
-              meetings.map((m) => (
-                <tr
-                  key={m.id}
-                  className="border-b border-zinc-800 transition hover:bg-zinc-800/50"
-                >
-                  <td className="px-4 py-3">
-                    <span className="block text-zinc-100">
-                      {formatMeetingDateTime(m.meetingDate)}
-                    </span>
-                    <span className="text-[11px] text-zinc-500">
-                      {m.durationMinutes} min
-                    </span>
-                  </td>
-                  <td className="px-4 py-3">{m.contactName}</td>
-                  <td className="px-4 py-3 text-white">{m.title}</td>
-                  <td className="px-4 py-3">
-                    <div className="flex flex-col gap-1">
-                      <MeetingStatusBadge status={m.status} />
-                      <div className="flex flex-wrap gap-1">
-                        <ReminderBadge label="WA" sent={m.reminderWhatsappSent} />
-                        <ReminderBadge
-                          label="Email"
-                          sent={m.reminderEmailSent}
-                        />
+              paginated.map((m) => {
+                const d = new Date(m.meetingDate);
+                return (
+                  <tr
+                    key={m.id}
+                    className="border-b border-zinc-800 transition hover:bg-zinc-800/50"
+                  >
+                    <td className="py-3 pr-4">
+                      {d.toLocaleDateString("fr-FR", {
+                        timeZone: "Africa/Casablanca",
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                    </td>
+                    <td className="py-3 pr-4">
+                      {d.toLocaleTimeString("fr-FR", {
+                        timeZone: "Africa/Casablanca",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })}
+                    </td>
+                    <td className="py-3 pr-4">{m.contactName}</td>
+                    <td className="py-3 pr-4">{m.title}</td>
+                    <td className="py-3 pr-4">
+                      {MEETING_STATUS_LABELS[m.status]}
+                    </td>
+                    <td className="py-3 pl-4 text-right">
+                      <div className="inline-flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => onSelect(m)}
+                          className="inline-flex items-center justify-center rounded border border-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-800"
+                          title="Voir le rendez-vous"
+                          aria-label="Voir le rendez-vous"
+                        >
+                          <Eye className="size-3.5" aria-hidden />
+                        </button>
+                        {m.meetLink ? (
+                          <a
+                            href={m.meetLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center justify-center rounded border border-emerald-700/60 p-1.5 text-emerald-300 hover:bg-emerald-900/30"
+                            title="Rejoindre Meet"
+                            aria-label="Rejoindre Meet"
+                          >
+                            <ExternalLink className="size-3.5" aria-hidden />
+                          </a>
+                        ) : null}
                       </div>
-                    </div>
-                  </td>
-                  <td className="px-4 py-3">
-                    {m.meetLink ? (
-                      <a
-                        href={m.meetLink}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 text-emerald-400 hover:text-emerald-300"
-                      >
-                        <ExternalLink className="size-3.5" />
-                        Lien
-                      </a>
-                    ) : (
-                      "—"
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-right">
-                    <button
-                      type="button"
-                      onClick={() => onSelect(m)}
-                      className="inline-flex items-center justify-center rounded border border-zinc-700 p-1.5 text-zinc-300 hover:bg-zinc-800"
-                      title="Voir le rendez-vous"
-                      aria-label="Voir le rendez-vous"
-                    >
-                      <Eye className="size-3.5" aria-hidden />
-                    </button>
-                  </td>
-                </tr>
-              ))
+                    </td>
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
+
+      {meetings.length > 0 ? (
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-zinc-800 pt-3 font-mono text-[11px] uppercase tracking-widest text-zinc-400">
+          <p>
+            Page {currentPage} / {totalPages} - {meetings.length} rendez-vous
+          </p>
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+              disabled={currentPage === 1}
+              className="rounded border border-zinc-700 px-2.5 py-1.5 text-zinc-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Precedent
+            </button>
+            {pageItems.map((item, idx) =>
+              item === "..." ? (
+                <span key={`dots-${idx}`} className="px-1 text-zinc-500">
+                  ...
+                </span>
+              ) : (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => setCurrentPage(item)}
+                  className={`rounded border px-2.5 py-1.5 ${
+                    item === currentPage
+                      ? "border-zinc-500 bg-zinc-800 text-white"
+                      : "border-zinc-700 text-zinc-300 hover:bg-zinc-800"
+                  }`}
+                >
+                  {item}
+                </button>
+              ),
+            )}
+            <button
+              type="button"
+              onClick={() =>
+                setCurrentPage((p) => Math.min(totalPages, p + 1))
+              }
+              disabled={currentPage === totalPages}
+              className="rounded border border-zinc-700 px-2.5 py-1.5 text-zinc-300 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Suivant
+            </button>
+          </div>
+        </div>
+      ) : null}
     </section>
   );
 }
