@@ -1,4 +1,5 @@
 import { getApiBaseUrl, getStoredAccessToken } from "../auth/backend-login";
+import { parseBackendApiError } from "../auth/api-errors";
 import type {
   BulkWhatsAppSendOptions,
   BulkWhatsAppSendPayload,
@@ -18,21 +19,6 @@ function buildAuthHeaders(): Record<string, string> {
     Authorization: `Bearer ${token}`,
     "Content-Type": "application/json",
   };
-}
-
-async function parseApiError(res: Response, context: string): Promise<never> {
-  const raw = await res.text().catch(() => "");
-  let message = raw || `Erreur ${res.status}`;
-  try {
-    const parsed = JSON.parse(raw) as { message?: string | string[] };
-    if (typeof parsed.message === "string") message = parsed.message;
-    else if (Array.isArray(parsed.message) && parsed.message.length > 0) {
-      message = parsed.message.join(", ");
-    }
-  } catch {
-    /* ignore */
-  }
-  throw new Error(message || `${context} (${res.status})`);
 }
 
 function parseConversation(row: unknown): WhatsAppConversation | null {
@@ -222,7 +208,7 @@ export async function fetchWhatsAppConversations(): Promise<WhatsAppConversation
 
   if (res.status === 404) return [];
 
-  if (!res.ok) return parseApiError(res, "GET /whatsapp/conversations");
+  if (!res.ok) return parseBackendApiError(res, "GET /whatsapp/conversations");
 
   const raw = (await res.json().catch(() => null)) as unknown;
   const list = Array.isArray(raw)
@@ -256,7 +242,7 @@ export async function fetchWhatsAppMediaUrl(mediaId: string): Promise<{
     },
   );
 
-  if (!res.ok) return parseApiError(res, `GET /whatsapp/media/${id}`);
+  if (!res.ok) return parseBackendApiError(res, `GET /whatsapp/media/${id}`);
 
   const raw = (await res.json().catch(() => null)) as Record<string, unknown> | null;
   const url = typeof raw?.url === "string" ? raw.url.trim() : "";
@@ -291,7 +277,7 @@ export async function fetchWhatsAppMediaObjectUrl(mediaId: string): Promise<stri
     },
   );
 
-  if (!res.ok) return parseApiError(res, `GET /whatsapp/media/${id}/content`);
+  if (!res.ok) return parseBackendApiError(res, `GET /whatsapp/media/${id}/content`);
 
   const blob = await res.blob();
   return URL.createObjectURL(blob);
@@ -313,7 +299,7 @@ export async function fetchWhatsAppConversation(
   );
 
   if (res.status === 404) return null;
-  if (!res.ok) return parseApiError(res, `GET /whatsapp/conversations/${conversationId}`);
+  if (!res.ok) return parseBackendApiError(res, `GET /whatsapp/conversations/${conversationId}`);
 
   const raw = await res.json().catch(() => null);
   return parseConversation(raw);
@@ -344,7 +330,7 @@ export async function fetchWhatsAppMessages(
   if (res.status === 404) return { items: [] };
 
   if (!res.ok) {
-    return parseApiError(res, `GET /whatsapp/conversations/${conversationId}/messages`);
+    return parseBackendApiError(res, `GET /whatsapp/conversations/${conversationId}/messages`);
   }
 
   const raw = (await res.json().catch(() => null)) as unknown;
@@ -415,7 +401,7 @@ export async function sendWhatsAppMessage(
   );
 
   if (!res.ok) {
-    return parseApiError(res, `POST /whatsapp/conversations/${conversationId}/messages`);
+    return parseBackendApiError(res, `POST /whatsapp/conversations/${conversationId}/messages`);
   }
 
   const raw = await res.json().catch(() => null);
@@ -442,7 +428,7 @@ export async function markWhatsAppConversationRead(
 
   if (res.status === 404) return;
   if (!res.ok) {
-    return parseApiError(res, `PATCH /whatsapp/conversations/${conversationId}/read`);
+    return parseBackendApiError(res, `PATCH /whatsapp/conversations/${conversationId}/read`);
   }
 }
 
@@ -580,7 +566,7 @@ export async function sendBulkWhatsAppMessages(
       });
       if (res.status === 404) continue;
       if (!res.ok) {
-        return parseApiError(res, `POST ${path}`);
+        return parseBackendApiError(res, `POST ${path}`);
       }
       const parsed = parseBulkResult(await res.json().catch(() => null));
       if (parsed) return parsed;

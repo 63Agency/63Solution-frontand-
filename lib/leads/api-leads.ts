@@ -1,15 +1,20 @@
-import type { ClickUpLead, LeadsApiResponse } from "./types";
+import {
+  fetchBackendLeadById,
+  fetchBackendLeads,
+  fetchBackendLeadsMeta,
+  fetchBackendLeadsStats,
+  metaToFilters,
+  syncBackendLeads,
+} from "./backend-leads";
+import type { ClickUpLead, LeadsApiResponse, LeadsMeta, LeadsStats } from "./types";
 
 export const LEADS_PER_PAGE = 25;
 export const LEADS_IMPORT_PAGE_SIZE = 500;
 
 export type FetchLeadsParams = {
-  /** Filter by ClickUp list_id (preferred). */
   listId?: string | null;
-  /** @deprecated use listId */
-  listName?: string | null;
   statuses?: string[];
-  hasPhone?: boolean;
+  search?: string | null;
   page?: number;
   pageSize?: number;
   signal?: AbortSignal;
@@ -17,62 +22,50 @@ export type FetchLeadsParams = {
 
 export type FetchLeadsForImportParams = {
   listId?: string | null;
-  /** @deprecated use listId */
-  listName?: string | null;
   status?: string | null;
   signal?: AbortSignal;
 };
 
 export async function fetchLeads({
   listId = null,
-  listName = null,
   statuses = [],
-  hasPhone = false,
+  search = null,
   page = 1,
   pageSize = LEADS_PER_PAGE,
   signal,
 }: FetchLeadsParams = {}): Promise<LeadsApiResponse> {
-  const params = new URLSearchParams();
-
-  const resolvedListId = listId?.trim() || null;
-  if (resolvedListId) {
-    params.set("list_id", resolvedListId);
-  } else if (listName?.trim()) {
-    // Legacy fallback — prefer list_id
-    params.set("list_name", listName.trim());
-  }
-
-  if (statuses.length > 0) {
-    params.set("status", statuses.join(","));
-  }
-
-  if (hasPhone) {
-    params.set("has_phone", "1");
-  }
-
-  params.set("page", String(Math.max(1, page)));
-  params.set("page_size", String(pageSize));
-
-  const url = `/api/leads?${params.toString()}`;
-
-  const res = await fetch(url, {
-    method: "GET",
-    cache: "no-store",
+  const limit = pageSize;
+  const offset = (Math.max(1, page) - 1) * limit;
+  return fetchBackendLeads({
+    listId,
+    statuses,
+    search,
+    limit,
+    offset,
     signal,
   });
-
-  if (!res.ok) {
-    const body = (await res.json().catch(() => null)) as { error?: string } | null;
-    throw new Error(body?.error ?? `Impossible de charger les leads (${res.status}).`);
-  }
-
-  return (await res.json()) as LeadsApiResponse;
 }
 
-/** Charge tous les leads avec téléphone via GET /api/leads (pagination auto). */
+export async function fetchLeadsMeta(signal?: AbortSignal): Promise<LeadsMeta> {
+  return fetchBackendLeadsMeta(signal);
+}
+
+export async function fetchLeadsStats(signal?: AbortSignal): Promise<LeadsStats> {
+  return fetchBackendLeadsStats(signal);
+}
+
+export async function syncLeads() {
+  return syncBackendLeads();
+}
+
+/** GET /leads/:id */
+export async function fetchLeadById(id: string, signal?: AbortSignal): Promise<ClickUpLead> {
+  return fetchBackendLeadById(id, signal);
+}
+
+/** Charge tous les leads avec téléphone via GET /leads (pagination auto). */
 export async function fetchLeadsForImport({
   listId = null,
-  listName = null,
   status = null,
   signal,
 }: FetchLeadsForImportParams = {}): Promise<{
@@ -80,31 +73,30 @@ export async function fetchLeadsForImport({
   filters: LeadsApiResponse["filters"];
 }> {
   const statuses = status?.trim() ? [status.trim()] : [];
+  const allLeads: ClickUpLead[] = [];
+  let offset = 0;
+  let total = Infinity;
+  let filters: LeadsApiResponse["filters"];
 
-  const first = await fetchLeads({
-    listId,
-    listName,
-    statuses,
-    hasPhone: true,
-    page: 1,
-    pageSize: LEADS_IMPORT_PAGE_SIZE,
-    signal,
-  });
-
-  const allLeads = [...first.leads];
-  const filters = first.filters;
-
-  for (let page = 2; page <= first.totalPages; page += 1) {
-    const next = await fetchLeads({
+  while (offset < total) {
+    const batch = await fetchBackendLeads({
       listId,
-      listName,
       statuses,
-      hasPhone: true,
-      page,
-      pageSize: LEADS_IMPORT_PAGE_SIZE,
+      limit: LEADS_IMPORT_PAGE_SIZE,
+      offset,
       signal,
     });
-    allLeads.push(...next.leads);
+    allLeads.push(...batch.leads);
+    total = batch.total;
+    offset += batch.leads.length;
+    if (batch.leads.length === 0) break;
+  }
+
+  try {
+    const meta = await fetchBackendLeadsMeta(signal);
+    filters = metaToFilters(meta);
+  } catch {
+    filters = { lists: [], statuses: [] };
   }
 
   return {
@@ -112,3 +104,5 @@ export async function fetchLeadsForImport({
     filters,
   };
 }
+
+export { metaToFilters };

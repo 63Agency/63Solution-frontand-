@@ -1,8 +1,61 @@
+import type { LeadsPermission, UserPermissions } from "./roles";
+
 export type BackendLoginUser = {
   id: string;
   email: string;
   role: string;
+  permissions?: UserPermissions;
 };
+
+function parseUserPermissions(raw: unknown): UserPermissions | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const obj = raw as Record<string, unknown>;
+
+  const pagesRaw = obj.pages;
+  const pages = Array.isArray(pagesRaw)
+    ? pagesRaw
+        .filter((page): page is string => typeof page === "string" && page.startsWith("/"))
+        .map((page) => page.trim())
+    : [];
+
+  const leadsRaw = obj.leadsPermissions;
+  const leadsPermissions = Array.isArray(leadsRaw)
+    ? leadsRaw
+        .map((item) => {
+          if (typeof item !== "string") return null;
+          const normalized = item.toLowerCase().trim();
+          if (
+            normalized === "list" ||
+            normalized === "detail" ||
+            normalized === "sync" ||
+            normalized === "meta" ||
+            normalized === "stats"
+          ) {
+            return normalized as LeadsPermission;
+          }
+          return null;
+        })
+        .filter((item): item is LeadsPermission => item != null)
+    : [];
+
+  if (pages.length === 0 && leadsPermissions.length === 0) return undefined;
+
+  return {
+    pages,
+    ...(leadsPermissions.length > 0 ? { leadsPermissions } : {}),
+  };
+}
+
+function parseBackendUser(raw: unknown): BackendLoginUser | null {
+  if (!raw || typeof raw !== "object") return null;
+  const row = raw as Record<string, unknown>;
+  const id = String(row.id ?? "").trim();
+  const email = String(row.email ?? "").trim();
+  if (!id || !email) return null;
+  const role = String(row.role ?? "").trim();
+  const permissions = parseUserPermissions(row.permissions);
+  return { id, email, role, ...(permissions ? { permissions } : {}) };
+}
 
 export type BackendLoginSuccess = {
   accessToken: string;
@@ -67,14 +120,18 @@ export function persistAuthSession(payload: BackendLoginSuccess): void {
   window.localStorage.setItem(STORAGE_USER, JSON.stringify(payload.user));
 }
 
-import { getDefaultDashboardRoute } from "./roles";
+import { getDefaultDashboardRoute, resolveAllowedPages } from "./roles";
 
 /** Aligne avec le backend Nest (admin → /dashboard, admin WhatsApp → conversations). */
 export function resolvePostLoginRoute(payload: BackendLoginSuccess): string {
-  if (payload.route === "/dashboard" || payload.route === "/home") {
-    return payload.route;
+  const route = payload.route?.trim();
+  if (route?.startsWith("/")) {
+    return route;
   }
-  return getDefaultDashboardRoute(payload.user.role ?? "");
+  return getDefaultDashboardRoute(
+    payload.user.role ?? "",
+    resolveAllowedPages(payload.user.role ?? "", payload.user.permissions),
+  );
 }
 
 export async function loginWithBackend(
@@ -111,12 +168,24 @@ export async function loginWithBackend(
     throw new Error("Réponse backend invalide après login.");
   }
 
+  const user = parseBackendUser(ok.user);
+  if (!user) {
+    throw new Error("Réponse backend invalide après login.");
+  }
+
+  const rootPermissions = parseUserPermissions(
+    (data as { permissions?: unknown } | null)?.permissions,
+  );
+  if (rootPermissions && !user.permissions) {
+    user.permissions = rootPermissions;
+  }
+
   return {
     accessToken: ok.accessToken,
     refreshToken: ok.refreshToken ?? null,
     expiresIn: ok.expiresIn ?? null,
     tokenType: ok.tokenType ?? "Bearer",
-    user: ok.user as BackendLoginUser,
+    user,
     route: ok.route,
   };
 }
@@ -158,19 +227,30 @@ export async function fetchCurrentUser(): Promise<BackendMeResponse> {
     throw new Error("Réponse /auth/me invalide.");
   }
 
-  const user = ok.user as BackendLoginUser;
-  let route: string;
-  if (ok.route === "/dashboard" || ok.route === "/home") {
-    route = ok.route;
-  } else {
-    route = resolvePostLoginRoute({
-      accessToken: token,
-      refreshToken: null,
-      expiresIn: null,
-      tokenType: "Bearer",
-      user,
-    });
+  const user = parseBackendUser(ok.user);
+  if (!user) {
+    throw new Error("Réponse /auth/me invalide.");
   }
+
+  const rootPermissions = parseUserPermissions(
+    (data as { permissions?: unknown } | null)?.permissions,
+  );
+  if (rootPermissions && !user.permissions) {
+    user.permissions = rootPermissions;
+  }
+
+  if (typeof window !== "undefined") {
+    window.localStorage.setItem(STORAGE_USER, JSON.stringify(user));
+  }
+
+  const route = resolvePostLoginRoute({
+    accessToken: token,
+    refreshToken: null,
+    expiresIn: null,
+    tokenType: "Bearer",
+    user,
+    route: ok.route,
+  });
 
   return { user, route };
 }

@@ -1,4 +1,5 @@
 import { getApiBaseUrl, getStoredAccessToken } from "../auth/backend-login";
+import { parseBackendApiError } from "../auth/api-errors";
 
 export type ClickUpSyncResult = {
   ok: boolean;
@@ -14,21 +15,6 @@ function buildAuthHeaders(): Record<string, string> {
   };
 }
 
-async function parseApiError(res: Response, context: string): Promise<never> {
-  const raw = await res.text().catch(() => "");
-  let message = raw || `Erreur ${res.status}`;
-  try {
-    const parsed = JSON.parse(raw) as { message?: string | string[] };
-    if (typeof parsed.message === "string") message = parsed.message;
-    else if (Array.isArray(parsed.message) && parsed.message.length > 0) {
-      message = parsed.message.join(", ");
-    }
-  } catch {
-    /* ignore */
-  }
-  throw new Error(message || `${context} (${res.status})`);
-}
-
 /** Déclenche une synchronisation manuelle ClickUp → Supabase (admin uniquement côté API). */
 export async function syncClickUpLeads(): Promise<ClickUpSyncResult> {
   const base = getApiBaseUrl();
@@ -40,7 +26,7 @@ export async function syncClickUpLeads(): Promise<ClickUpSyncResult> {
     credentials: "include",
   });
 
-  if (!res.ok) return parseApiError(res, "POST /clickup/sync");
+  if (!res.ok) return parseBackendApiError(res, "POST /clickup/sync");
 
   const raw = (await res.json().catch(() => null)) as unknown;
   if (!raw || typeof raw !== "object") {

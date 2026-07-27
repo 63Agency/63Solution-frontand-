@@ -4,6 +4,21 @@ export const ROLE_ADMIN_WHATSAPP = "admin_whatsapp";
 
 export type AppRole = typeof ROLE_FULL_ADMIN | typeof ROLE_ADMIN_WHATSAPP | string;
 
+export type LeadsPermission = "list" | "detail" | "sync" | "meta" | "stats";
+
+export const ALL_LEADS_PERMISSIONS: readonly LeadsPermission[] = [
+  "list",
+  "detail",
+  "sync",
+  "meta",
+  "stats",
+];
+
+export type UserPermissions = {
+  pages: string[];
+  leadsPermissions?: LeadsPermission[];
+};
+
 function normalizeRole(role: string): string {
   return role.toLowerCase().trim().replace(/[\s-]+/g, "_");
 }
@@ -29,7 +44,7 @@ export function canViewTeamUsersSection(role: string): boolean {
 }
 
 export function canAccessParametres(role: string): boolean {
-  return isFullAdminRole(role) || isAdminWhatsAppRole(role);
+  return isFullAdminRole(role);
 }
 
 const FULL_ADMIN_NAV = [
@@ -41,7 +56,10 @@ const FULL_ADMIN_NAV = [
   "/dashboard/conversations",
 ] as const;
 
-const ADMIN_WHATSAPP_NAV = ["/dashboard/conversations"] as const;
+const ADMIN_WHATSAPP_NAV = [
+  "/dashboard/conversations",
+  "/dashboard/leads",
+] as const;
 
 export function getAllowedDashboardHrefs(role: string): readonly string[] {
   if (isFullAdminRole(role)) return FULL_ADMIN_NAV;
@@ -49,17 +67,45 @@ export function getAllowedDashboardHrefs(role: string): readonly string[] {
   return FULL_ADMIN_NAV;
 }
 
-export function canAccessDashboardHref(href: string, role: string): boolean {
-  if (href === "/dashboard/parametres" || href.startsWith("/dashboard/parametres/")) {
-    return canAccessParametres(role);
-  }
-  const allowed = getAllowedDashboardHrefs(role);
-  return allowed.some(
-    (base) => href === base || href.startsWith(`${base}/`),
-  );
+export function resolveAllowedPages(
+  role: string,
+  permissions?: UserPermissions | null,
+): readonly string[] {
+  const pages = permissions?.pages?.filter((page) => page.startsWith("/")) ?? [];
+  if (pages.length > 0) return pages;
+  return getAllowedDashboardHrefs(role);
 }
 
-export function getDefaultDashboardRoute(role: string): string {
+function hrefMatchesAllowed(href: string, allowed: readonly string[]): boolean {
+  return allowed.some((base) => href === base || href.startsWith(`${base}/`));
+}
+
+export function canAccessDashboardHref(
+  href: string,
+  role: string,
+  allowedPages?: readonly string[],
+): boolean {
+  const allowed = allowedPages ?? resolveAllowedPages(role);
+
+  if (href === "/dashboard/parametres" || href.startsWith("/dashboard/parametres/")) {
+    return canAccessParametres(role) && hrefMatchesAllowed(href, allowed);
+  }
+
+  return hrefMatchesAllowed(href, allowed);
+}
+
+export function getDefaultDashboardRoute(
+  role: string,
+  allowedPages?: readonly string[],
+): string {
+  const allowed = allowedPages ?? resolveAllowedPages(role);
+  if (allowed.length > 0) {
+    const conversations = allowed.find((page) =>
+      page.startsWith("/dashboard/conversations"),
+    );
+    if (conversations) return conversations;
+    return allowed[0];
+  }
   if (isAdminWhatsAppRole(role)) return "/dashboard/conversations";
   if (isFullAdminRole(role)) return "/dashboard";
   return "/home";
@@ -84,4 +130,38 @@ export function shouldShowTeamUserInList(
 /** @deprecated Préférer canManageTeamUsers */
 export function isAdminRole(role: string): boolean {
   return canManageTeamUsers(role);
+}
+
+function parseLeadsPermission(value: unknown): LeadsPermission | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.toLowerCase().trim();
+  if (
+    normalized === "list" ||
+    normalized === "detail" ||
+    normalized === "sync" ||
+    normalized === "meta" ||
+    normalized === "stats"
+  ) {
+    return normalized;
+  }
+  return null;
+}
+
+/** Permissions Leads depuis le backend ; défaut = tout si absent. */
+export function resolveLeadsPermissions(
+  permissions?: UserPermissions | null,
+): readonly LeadsPermission[] {
+  const raw = permissions?.leadsPermissions ?? [];
+  const parsed = raw
+    .map(parseLeadsPermission)
+    .filter((item): item is LeadsPermission => item != null);
+  if (parsed.length > 0) return parsed;
+  return ALL_LEADS_PERMISSIONS;
+}
+
+export function hasLeadsPermission(
+  permissions: UserPermissions | undefined | null,
+  action: LeadsPermission,
+): boolean {
+  return resolveLeadsPermissions(permissions).includes(action);
 }
