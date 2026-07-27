@@ -353,7 +353,8 @@ export function BulkSendLeadsImportPage() {
                   <option value="">Toutes les listes</option>
                   {listOptions.map((list) => (
                     <option key={list.listId} value={list.listId}>
-                      {list.label} ({list.total})
+                      {list.label}
+                      {list.total != null ? ` (${list.total})` : ""}
                     </option>
                   ))}
                 </select>

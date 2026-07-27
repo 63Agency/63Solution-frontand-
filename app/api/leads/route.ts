@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
-import { mapClickUpLeadRow, parseLeadsFilterOptions } from "@/lib/leads/types";
+import { fetchLeadsFilterOptionsFromRpc } from "@/lib/leads/rpc-filter-options";
+import { mapClickUpLeadRow } from "@/lib/leads/types";
 
 const DEFAULT_PAGE_SIZE = 25;
 const MAX_PAGE_SIZE = 100;
@@ -69,21 +70,13 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const [{ data, error, count }, filterRpc] = await Promise.all([
+    const [{ data, error, count }, filterResult] = await Promise.all([
       query,
-      supabase.rpc("get_leads_filter_options"),
+      fetchLeadsFilterOptionsFromRpc(),
     ]);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-
-    if (filterRpc.error) {
-      console.error("[leads] get_leads_filter_options failed:", filterRpc.error.message);
-      return NextResponse.json(
-        { error: filterRpc.error.message || "Filter options RPC failed" },
-        { status: 500 },
-      );
     }
 
     let leads = (data ?? []).map((row) => mapClickUpLeadRow(row as Record<string, unknown>));
@@ -94,11 +87,7 @@ export async function GET(request: NextRequest) {
 
     const total = count ?? leads.length;
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
-    const filters = parseLeadsFilterOptions(filterRpc.data);
-
-    console.log(
-      `[leads] filter options: lists=${filters.lists.length} statuses=${filters.statuses.length}`,
-    );
+    const filters = filterResult.filters;
 
     return NextResponse.json({
       leads,

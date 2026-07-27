@@ -7,10 +7,9 @@ import { fetchCurrentUser, getStoredUser } from "@/lib/auth/backend-login";
 import { hasLeadsPermission, type UserPermissions } from "@/lib/auth/roles";
 import {
   fetchLeads,
-  fetchLeadsMeta,
+  fetchLeadsFilters,
   fetchLeadsStats,
   LEADS_PER_PAGE,
-  metaToFilters,
   syncLeads,
 } from "@/lib/leads/api-leads";
 import type {
@@ -218,8 +217,7 @@ export function LeadsPage() {
     if (!canMeta) return;
     setMetaLoading(true);
     try {
-      const meta = await fetchLeadsMeta();
-      const filters = metaToFilters(meta, stats);
+      const filters = await fetchLeadsFilters();
       setListOptions(filters.lists);
       setStatusOptions(filters.statuses);
     } catch {
@@ -227,7 +225,7 @@ export function LeadsPage() {
     } finally {
       setMetaLoading(false);
     }
-  }, [canMeta, stats]);
+  }, [canMeta]);
 
   const loadStats = useCallback(async () => {
     if (!canStats) return;
@@ -281,7 +279,7 @@ export function LeadsPage() {
   useEffect(() => {
     if (!permissionsReady) return;
     void loadMeta();
-  }, [permissionsReady, loadMeta, stats]);
+  }, [permissionsReady, loadMeta]);
 
   useEffect(() => {
     if (!permissionsReady) return;

@@ -1,12 +1,10 @@
 import {
   fetchBackendLeadById,
   fetchBackendLeads,
-  fetchBackendLeadsMeta,
   fetchBackendLeadsStats,
-  metaToFilters,
   syncBackendLeads,
 } from "./backend-leads";
-import type { ClickUpLead, LeadsApiResponse, LeadsMeta, LeadsStats } from "./types";
+import type { ClickUpLead, LeadsApiResponse, LeadsFilters, LeadsMeta, LeadsStats } from "./types";
 
 export const LEADS_PER_PAGE = 25;
 export const LEADS_IMPORT_PAGE_SIZE = 500;
@@ -46,8 +44,31 @@ export async function fetchLeads({
   });
 }
 
+export async function fetchLeadsFilters(signal?: AbortSignal): Promise<LeadsFilters> {
+  const res = await fetch("/api/leads/meta", {
+    method: "GET",
+    cache: "no-store",
+    signal,
+  });
+
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? `Impossible de charger les filtres leads (${res.status}).`);
+  }
+
+  return (await res.json()) as LeadsFilters;
+}
+
 export async function fetchLeadsMeta(signal?: AbortSignal): Promise<LeadsMeta> {
-  return fetchBackendLeadsMeta(signal);
+  const filters = await fetchLeadsFilters(signal);
+  return {
+    statuses: filters.statuses.map((status) => status.value),
+    lists: filters.lists.map((list) => ({
+      id: list.listId,
+      name: list.label,
+      total: list.total,
+    })),
+  };
 }
 
 export async function fetchLeadsStats(signal?: AbortSignal): Promise<LeadsStats> {
@@ -93,8 +114,7 @@ export async function fetchLeadsForImport({
   }
 
   try {
-    const meta = await fetchBackendLeadsMeta(signal);
-    filters = metaToFilters(meta);
+    filters = await fetchLeadsFilters(signal);
   } catch {
     filters = { lists: [], statuses: [] };
   }
@@ -104,5 +124,3 @@ export async function fetchLeadsForImport({
     filters,
   };
 }
-
-export { metaToFilters };

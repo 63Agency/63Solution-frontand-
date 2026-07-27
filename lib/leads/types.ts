@@ -39,7 +39,7 @@ export type LeadsApiResponse = {
 
 export type LeadsMeta = {
   statuses: string[];
-  lists: { id: string; name: string }[];
+  lists: { id: string; name: string; total?: number }[];
 };
 
 export type LeadsStats = {
@@ -110,6 +110,7 @@ export function metaToFilters(meta: LeadsMeta, stats?: LeadsStats | null): Leads
     lists: meta.lists.map((list) => ({
       listId: list.id,
       label: list.name,
+      ...(list.total != null ? { total: list.total } : {}),
     })),
     statuses: meta.statuses.map((value) => ({
       value,
@@ -135,8 +136,67 @@ export function parseLeadsStats(raw: unknown): LeadsStats {
   return { total, byStatus };
 }
 
-/** @deprecated Préférer parseLeadsMeta */
+/** Parse la réponse RPC get_leads_filter_options (lists + statuses avec totaux). */
 export function parseLeadsFilterOptions(raw: unknown): LeadsFilters {
-  const meta = parseLeadsMeta(raw);
-  return metaToFilters(meta);
+  const empty: LeadsFilters = { lists: [], statuses: [] };
+  if (!raw || typeof raw !== "object") return empty;
+
+  const data = raw as { lists?: unknown; statuses?: unknown };
+
+  const lists: LeadListOption[] = [];
+  if (Array.isArray(data.lists)) {
+    for (const item of data.lists) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      const listId = String(row.list_id ?? row.listId ?? row.id ?? "").trim();
+      const label = String(
+        row.label ?? row.list_name ?? row.listName ?? row.name ?? "",
+      ).trim();
+      const totalRaw = row.total;
+      const total =
+        typeof totalRaw === "number"
+          ? totalRaw
+          : totalRaw == null || totalRaw === ""
+            ? undefined
+            : Number(totalRaw) || undefined;
+
+      if (!listId) continue;
+      lists.push({
+        listId,
+        label: label || listId,
+        ...(total != null ? { total } : {}),
+      });
+    }
+  }
+
+  const statuses: LeadStatusOption[] = [];
+  if (Array.isArray(data.statuses)) {
+    for (const item of data.statuses) {
+      if (typeof item === "string") {
+        const value = item.trim();
+        if (value) statuses.push({ value });
+        continue;
+      }
+      if (!item || typeof item !== "object") continue;
+      const row = item as Record<string, unknown>;
+      const value = String(row.value ?? row.status ?? "").trim();
+      const totalRaw = row.total;
+      const total =
+        typeof totalRaw === "number"
+          ? totalRaw
+          : totalRaw == null || totalRaw === ""
+            ? undefined
+            : Number(totalRaw) || undefined;
+      if (!value) continue;
+      statuses.push({
+        value,
+        ...(total != null ? { total } : {}),
+      });
+    }
+  }
+
+  lists.sort((a, b) => a.label.localeCompare(b.label, "fr"));
+  statuses.sort((a, b) => a.value.localeCompare(b.value, "fr"));
+
+  return { lists, statuses };
 }
