@@ -48,9 +48,23 @@ Après exécution de `sql/017-notifications-table.sql` et redémarrage Nest, le 
 
 Intervalle : `NEXT_PUBLIC_WHATSAPP_POLL_MS` (défaut 3000 ms). Un seul poll alimente la cloche et les toasts.
 
+## Déduplication WhatsApp (backend)
+
+Après migration `sql/024-notifications-whatsapp-dedup.sql` :
+
+- **Une notification par conversation** (upsert au lieu d’une row par webhook).
+- Nouveau message sur une conversation déjà notifiée → **mise à jour** (`body`, `createdAt`), pas de doublon.
+- `GET /notifications` → liste sans doublons par conversation.
+- `unreadCount` = nombre de **notifications non lues** (≠ nombre de messages WhatsApp).
+- Ouvrir un fil (`PATCH /whatsapp/conversations/:id/read`) marque la notification associée comme lue (`markReadByConversationId` côté Nest).
+
+Le frontend ne change pas d’endpoint ; il consomme `unreadCount` tel quel et garde une couche anti-doublon sur les toasts (poll / preview).
+
 ## Déploiement checklist
 
 1. Exécuter `sql/017-notifications-table.sql` dans Supabase  
-2. Redémarrer l’API Nest  
-3. Vérifier `GET /notifications` (200 + JSON)  
-4. Envoyer un message WhatsApp test → badge cloche + entrée dans le panneau  
+2. Exécuter **`sql/024-notifications-whatsapp-dedup.sql`** dans Supabase (prod + staging)  
+3. Redémarrer l’API Nest  
+4. Vérifier `GET /notifications` (200 + JSON, pas de doublons par `conversationId`)  
+5. Envoyer un message WhatsApp test → badge cloche + entrée dans le panneau  
+6. Renvoyer un 2ᵉ message sur la même conversation → **1 seule** entrée mise à jour, pas 2 lignes

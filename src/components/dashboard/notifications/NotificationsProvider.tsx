@@ -18,6 +18,8 @@ import {
 } from "@/lib/notifications/backend-notifications";
 import { showBrowserNotification } from "@/lib/notifications/browser-notifications";
 import {
+  buildNewestPreviewByConversation,
+  dedupeAlertsByConversation,
   detectNewApiNotifications,
   detectUnreadPreviewChanges,
   getNotificationConversationId,
@@ -75,6 +77,7 @@ function pushNotificationAlerts(
 ) {
   for (const alert of alerts) {
     toast.info(alert.title, {
+      id: alert.tag,
       description: alert.body,
       duration: 8000,
       action: {
@@ -93,10 +96,6 @@ function pushNotificationAlerts(
   }
 }
 
-function previewKey(n: AppNotification): string {
-  return getNotificationConversationId(n) ?? n.id;
-}
-
 export function NotificationsProvider({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -113,6 +112,9 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
   const knownNotificationIdsRef = useRef<Set<string>>(new Set());
   const previewByConvoRef = useRef<Map<string, string>>(new Map());
   const bootstrappedRef = useRef(false);
+  const lastSourceRef = useRef<"api" | "whatsapp" | null>(null);
+  const refreshInFlightRef = useRef<Promise<void> | null>(null);
+  const pendingRefreshRef = useRef(false);
 
   const isActiveConversation = useCallback(
     (conversationId: string) => {
@@ -122,77 +124,111 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     [pathname],
   );
 
-  const refresh = useCallback(async () => {
-    try {
-      setError(null);
-      const page = await fetchNotificationsPage();
-      setSource(page.source);
-      setNotifications(page.items);
-      setUnreadCount(page.unreadCount);
-
-      if (!bootstrappedRef.current) {
-        bootstrappedRef.current = true;
-        knownNotificationIdsRef.current = new Set(page.items.map((n) => n.id));
-        previewByConvoRef.current = new Map(
-          page.items.map((n) => [previewKey(n), n.body]),
-        );
-        if (page.source === "whatsapp") {
-          snapshotRef.current = buildConversationSnapshots(page.conversations ?? []);
-        }
-        return;
-      }
-
-      if (page.source === "api") {
-        const newOnes = detectNewApiNotifications(
-          knownNotificationIdsRef.current,
-          page.items,
-          isActiveConversation,
-        );
-        const previewChanges = detectUnreadPreviewChanges(
-          previewByConvoRef.current,
-          page.items,
-          isActiveConversation,
-        );
-        const toAlert = [...newOnes, ...previewChanges];
-        pushNotificationAlerts(
-          toAlert.map((n) => ({
-            title: n.type === "whatsapp.message" ? `WhatsApp · ${n.title}` : n.title,
-            body: n.body,
-            href: n.href,
-            tag: n.id,
-          })),
-          router,
-        );
-        knownNotificationIdsRef.current = new Set(page.items.map((n) => n.id));
-        previewByConvoRef.current = new Map(
-          page.items.map((n) => [previewKey(n), n.body]),
-        );
+  const bootstrapDetectors = useCallback(
+    (page: Awaited<ReturnType<typeof fetchNotificationsPage>>) => {
+      knownNotificationIdsRef.current = new Set(page.items.map((n) => n.id));
+      previewByConvoRef.current = buildNewestPreviewByConversation(page.items);
+      if (page.source === "whatsapp") {
+        snapshotRef.current = buildConversationSnapshots(page.conversations ?? []);
       } else {
-        const conversations = page.conversations ?? [];
-        const alerts = detectInboundWhatsAppAlerts(
-          snapshotRef.current,
-          conversations,
-          { isActiveConversation },
-        );
-        pushNotificationAlerts(
-          alerts.map((a) => ({
-            title: `WhatsApp · ${a.title}`,
-            body: a.body,
-            href: a.href,
-            tag: `wa-${a.conversationId}`,
-          })),
-          router,
-        );
-        snapshotRef.current = buildConversationSnapshots(conversations);
+        snapshotRef.current = buildConversationSnapshots([]);
       }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : "Impossible de charger les notifications.";
-      setError(msg);
-      console.warn("[notifications]", e);
-    } finally {
-      setLoading(false);
+      lastSourceRef.current = page.source;
+    },
+    [],
+  );
+
+  const refresh = useCallback(async () => {
+    if (refreshInFlightRef.current) {
+      pendingRefreshRef.current = true;
+      await refreshInFlightRef.current;
+      return;
     }
-  }, [isActiveConversation, router]);
+
+    const run = (async () => {
+      try {
+        setError(null);
+        const page = await fetchNotificationsPage();
+        setSource(page.source);
+        setNotifications(page.items);
+        setUnreadCount(page.unreadCount);
+
+        if (!bootstrappedRef.current) {
+          bootstrappedRef.current = true;
+          bootstrapDetectors(page);
+          return;
+        }
+
+        // Changement de source → réinitialiser sans alerter (évite flood de faux "nouveaux")
+        if (lastSourceRef.current && lastSourceRef.current !== page.source) {
+          bootstrapDetectors(page);
+          return;
+        }
+
+        if (page.source === "api") {
+          const newOnes = detectNewApiNotifications(
+            knownNotificationIdsRef.current,
+            page.items,
+            isActiveConversation,
+          );
+          const previewChanges = detectUnreadPreviewChanges(
+            previewByConvoRef.current,
+            page.items,
+            isActiveConversation,
+          );
+          const toAlert = dedupeAlertsByConversation([...newOnes, ...previewChanges]);
+          pushNotificationAlerts(
+            toAlert.map((n) => ({
+              title: n.type === "whatsapp.message" ? `WhatsApp · ${n.title}` : n.title,
+              body: n.body,
+              href: n.href,
+              tag: getNotificationConversationId(n) ?? n.id,
+            })),
+            router,
+          );
+          knownNotificationIdsRef.current = new Set(page.items.map((n) => n.id));
+          previewByConvoRef.current = buildNewestPreviewByConversation(page.items);
+        } else {
+          const conversations = page.conversations ?? [];
+          const alerts = detectInboundWhatsAppAlerts(
+            snapshotRef.current,
+            conversations,
+            { isActiveConversation },
+          );
+          pushNotificationAlerts(
+            alerts.map((a) => ({
+              title: `WhatsApp · ${a.title}`,
+              body: a.body,
+              href: a.href,
+              tag: `wa-${a.conversationId}`,
+            })),
+            router,
+          );
+          snapshotRef.current = buildConversationSnapshots(conversations);
+        }
+
+        lastSourceRef.current = page.source;
+      } catch (e) {
+        const msg =
+          e instanceof Error ? e.message : "Impossible de charger les notifications.";
+        setError(msg);
+        console.warn("[notifications]", e);
+      } finally {
+        setLoading(false);
+      }
+    })();
+
+    refreshInFlightRef.current = run;
+    try {
+      await run;
+    } finally {
+      refreshInFlightRef.current = null;
+      if (pendingRefreshRef.current) {
+        pendingRefreshRef.current = false;
+        void refresh();
+      }
+    }
+  }, [bootstrapDetectors, isActiveConversation, router]);
 
   useEffect(() => {
     void refresh();

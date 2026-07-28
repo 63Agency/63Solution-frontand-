@@ -40,14 +40,11 @@ export function detectInboundWhatsAppAlerts(
     const prev = previous.get(c.id);
     if (!prev) continue;
 
+    // Uniquement unread↑ = vrai inbound. Ne pas alerter sur lastMessageAt seul
+    // (sinon double toast quand unread et timestamp arrivent sur 2 polls différents,
+    // ou faux positif sur message sortant agent).
     const unreadIncreased = c.unreadCount > prev.unreadCount;
-    const messageChanged =
-      Boolean(c.lastMessageAt) &&
-      c.lastMessageAt !== prev.lastMessageAt &&
-      new Date(c.lastMessageAt!).getTime() >
-        new Date(prev.lastMessageAt ?? 0).getTime();
-
-    if (!unreadIncreased && !messageChanged) continue;
+    if (!unreadIncreased) continue;
 
     const title =
       c.contactName?.trim() ||

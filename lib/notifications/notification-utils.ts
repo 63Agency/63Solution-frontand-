@@ -43,13 +43,51 @@ export function detectUnreadPreviewChanges(
   items: AppNotification[],
   isActiveConversation: (conversationId: string) => boolean,
 ): AppNotification[] {
-  return items.filter((n) => {
-    if (n.read) return false;
+  const seenKeys = new Set<string>();
+  const alerts: AppNotification[] = [];
+
+  // items = newest first → garder une alerte max par conversation
+  for (const n of items) {
+    if (n.read) continue;
     const convId = getNotificationConversationId(n);
-    if (convId && isActiveConversation(convId)) return false;
+    if (convId && isActiveConversation(convId)) continue;
     const key = convId ?? n.id;
+    if (seenKeys.has(key)) continue;
+    seenKeys.add(key);
+
     const prevBody = previous.get(key);
-    if (prevBody === undefined) return false;
-    return prevBody !== n.body;
-  });
+    if (prevBody === undefined) continue;
+    if (prevBody === n.body) continue;
+    alerts.push(n);
+  }
+
+  return alerts;
+}
+
+/** Garde le body le plus récent par conversation (items triés newest-first). */
+export function buildNewestPreviewByConversation(
+  items: AppNotification[],
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const n of items) {
+    const key = getNotificationConversationId(n) ?? n.id;
+    if (map.has(key)) continue; // already have newest
+    map.set(key, n.body);
+  }
+  return map;
+}
+
+/** Une alerte max par conversation (évite newId + previewChange pour le même message). */
+export function dedupeAlertsByConversation(
+  alerts: AppNotification[],
+): AppNotification[] {
+  const seen = new Set<string>();
+  const out: AppNotification[] = [];
+  for (const n of alerts) {
+    const key = getNotificationConversationId(n) ?? n.id;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(n);
+  }
+  return out;
 }

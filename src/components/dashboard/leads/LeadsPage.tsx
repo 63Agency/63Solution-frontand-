@@ -445,7 +445,7 @@ export function LeadsPage() {
                 <label
                   className={cn(
                     filterFieldClass,
-                    "normal-case rounded-full px-4 py-2.5",
+                    "normal-case rounded-full px-4",
                   )}
                 >
                   <Search className="size-4 shrink-0 text-zinc-500" aria-hidden />

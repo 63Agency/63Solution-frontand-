@@ -201,27 +201,9 @@ export async function fetchNotificationsPage(): Promise<NotificationsPage> {
     return whatsappPage;
   }
 
-  const apiUnread = fromApi.items.filter((n) => !n.read);
-  const hasUsableApiItems = apiUnread.length > 0 || fromApi.items.length > 0;
-
-  if (hasUsableApiItems && apiUnread.length > 0) {
-    return {
-      ...fromApi,
-      unreadCount: Math.max(fromApi.unreadCount, apiUnread.length),
-    };
-  }
-
-  if (fromApi.unreadCount > 0 && whatsappPage.items.length > 0) {
-    return {
-      items: whatsappPage.items,
-      unreadCount: Math.max(fromApi.unreadCount, whatsappPage.unreadCount),
-      source: "whatsapp",
-      conversations,
-    };
-  }
-
-  if (fromApi.items.length > 0) {
-    return fromApi;
+  // API disponible : faire confiance à unreadCount backend (1 notif / conversation, pas / message).
+  if (fromApi.items.length > 0 || fromApi.unreadCount > 0) {
+    return { ...fromApi, conversations };
   }
 
   if (whatsappPage.items.length > 0 || whatsappPage.unreadCount > 0) {
