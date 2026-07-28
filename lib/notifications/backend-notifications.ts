@@ -136,10 +136,8 @@ function buildWhatsAppFallbackPage(
   conversations: WhatsAppConversation[],
 ): NotificationsPage {
   const items = conversationsToNotifications(conversations);
-  const unreadCount = conversations.reduce(
-    (sum, c) => sum + (c.unreadCount > 0 ? c.unreadCount : 0),
-    0,
-  );
+  // Fallback : 1 entrée par conversation non lue (pas la somme des messages).
+  const unreadCount = conversations.filter((c) => c.unreadCount > 0).length;
   return { items, unreadCount, source: "whatsapp", conversations };
 }
 
@@ -182,7 +180,7 @@ export async function fetchNotificationsFromApi(): Promise<NotificationsPage | n
         ? unreadFromApi.unreadCount
         : typeof unreadFromApi?.unread_count === "number"
           ? unreadFromApi.unread_count
-          : items.filter((n) => !n.read).length;
+          : 0;
 
     return { items, unreadCount, source: "api" };
   } catch (e) {

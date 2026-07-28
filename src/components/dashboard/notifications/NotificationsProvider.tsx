@@ -12,6 +12,7 @@ import {
 import { usePathname, useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
+  fetchNotificationsFromApi,
   fetchNotificationsPage,
   markAllNotificationsRead,
   markNotificationRead,
@@ -19,7 +20,6 @@ import {
 import { showBrowserNotification } from "@/lib/notifications/browser-notifications";
 import {
   buildNewestPreviewByConversation,
-  dedupeAlertsByConversation,
   detectNewApiNotifications,
   detectUnreadPreviewChanges,
   getNotificationConversationId,
@@ -44,6 +44,8 @@ type NotificationsContextValue = {
   source: "api" | "whatsapp";
   error: string | null;
   refresh: () => Promise<void>;
+  /** PATCH /whatsapp/conversations/:id/read puis GET /notifications (badge). */
+  markConversationRead: (conversationId: string) => Promise<void>;
   markRead: (notification: AppNotification) => Promise<void>;
   markAllRead: () => Promise<void>;
   browserPermission: NotificationPermission | "unsupported";
@@ -176,7 +178,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
             page.items,
             isActiveConversation,
           );
-          const toAlert = dedupeAlertsByConversation([...newOnes, ...previewChanges]);
+          const toAlert = [...newOnes, ...previewChanges];
           pushNotificationAlerts(
             toAlert.map((n) => ({
               title: n.type === "whatsapp.message" ? `WhatsApp · ${n.title}` : n.title,
@@ -245,6 +247,31 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
     setBrowserPermission(Notification.permission);
   }, []);
 
+  const applyNotificationsPage = useCallback(
+    (page: Awaited<ReturnType<typeof fetchNotificationsPage>>) => {
+      setSource(page.source);
+      setNotifications(page.items);
+      setUnreadCount(page.unreadCount);
+    },
+    [],
+  );
+
+  const markConversationRead = useCallback(
+    async (conversationId: string) => {
+      await markWhatsAppConversationRead(conversationId).catch(() => undefined);
+      const fromApi = await fetchNotificationsFromApi();
+      if (fromApi) {
+        applyNotificationsPage(fromApi);
+        knownNotificationIdsRef.current = new Set(fromApi.items.map((n) => n.id));
+        previewByConvoRef.current = buildNewestPreviewByConversation(fromApi.items);
+        lastSourceRef.current = "api";
+        return;
+      }
+      await refresh();
+    },
+    [applyNotificationsPage, refresh],
+  );
+
   const markRead = useCallback(
     async (notification: AppNotification) => {
       const convId = getNotificationConversationId(notification);
@@ -296,6 +323,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       source,
       error,
       refresh,
+      markConversationRead,
       markRead,
       markAllRead,
       browserPermission,
@@ -308,6 +336,7 @@ export function NotificationsProvider({ children }: { children: React.ReactNode 
       source,
       error,
       refresh,
+      markConversationRead,
       markRead,
       markAllRead,
       browserPermission,

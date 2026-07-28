@@ -10,14 +10,12 @@ import {
 import type { WhatsAppConversation } from "@/lib/whatsapp/types";
 import {
   setActiveWhatsAppConversationId,
-  useNotifications,
 } from "../notifications/NotificationsProvider";
 import { ChatThread } from "./ChatThread";
 import { ConversationList } from "./ConversationList";
 
 export function ConversationsPage() {
   const searchParams = useSearchParams();
-  const { refresh: refreshNotifications } = useNotifications();
   const [conversations, setConversations] = useState<WhatsAppConversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
@@ -119,7 +117,6 @@ export function ConversationsPage() {
             pollTick={pollTick}
             onConversationUpdate={() => {
               void loadConversations(true);
-              void refreshNotifications();
             }}
             onBack={() => setSelectedId(null)}
           />

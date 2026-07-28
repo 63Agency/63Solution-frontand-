@@ -31,7 +31,6 @@ import {
 } from "@/lib/upload/backend-upload";
 import {
   fetchWhatsAppMessages,
-  markWhatsAppConversationRead,
   sendWhatsAppMessage,
 } from "@/lib/whatsapp/backend-whatsapp";
 import { mergeMessageStatus } from "@/lib/whatsapp/message-status";
@@ -61,6 +60,7 @@ import {
   conversationDisplayName,
   formatMessageDayLabel,
 } from "./whatsapp-utils";
+import { useNotifications } from "../notifications/NotificationsProvider";
 
 const WHATSAPP_CHAT_BG = "/images/image.png";
 const MEDIA_FOLDER = "63agency/whatsapp";
@@ -185,6 +185,7 @@ export function ChatThread({
   onConversationUpdate,
   onBack,
 }: Props) {
+  const { markConversationRead } = useNotifications();
   const [messages, setMessages] = useState<WhatsAppMessage[]>([]);
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
@@ -303,9 +304,7 @@ export function ChatThread({
             new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
         );
       });
-      void markWhatsAppConversationRead(conversationId).then(() => {
-        onConversationUpdate();
-      });
+      onConversationUpdate();
     } catch (e) {
       if (!silent) {
         toast.error(e instanceof Error ? e.message : "Chargement impossible.");
@@ -314,6 +313,11 @@ export function ChatThread({
       if (!silent) setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (!conversationId) return;
+    void markConversationRead(conversationId);
+  }, [conversationId, markConversationRead]);
 
   useEffect(() => {
     void loadMessages();
