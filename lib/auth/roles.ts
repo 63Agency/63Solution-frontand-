@@ -59,6 +59,7 @@ const FULL_ADMIN_NAV = [
 const ADMIN_WHATSAPP_NAV = [
   "/dashboard/conversations",
   "/dashboard/leads",
+  "/dashboard/calendrier",
 ] as const;
 
 export function getAllowedDashboardHrefs(role: string): readonly string[] {
@@ -72,7 +73,20 @@ export function resolveAllowedPages(
   permissions?: UserPermissions | null,
 ): readonly string[] {
   const pages = permissions?.pages?.filter((page) => page.startsWith("/")) ?? [];
-  if (pages.length > 0) return pages;
+  if (pages.length > 0) {
+    // Admin WhatsApp : toujours autoriser le calendrier (même si absent de permissions.pages).
+    if (
+      isAdminWhatsAppRole(role) &&
+      !pages.some(
+        (page) =>
+          page === "/dashboard/calendrier" ||
+          page.startsWith("/dashboard/calendrier/"),
+      )
+    ) {
+      return [...pages, "/dashboard/calendrier"];
+    }
+    return pages;
+  }
   return getAllowedDashboardHrefs(role);
 }
 

@@ -3,11 +3,22 @@ import type {
   CreateMeetingPayload,
   ListMeetingsQuery,
   Meeting,
+  MeetingReminderChannelConfig,
+  MeetingReminderChannelStatus,
+  MeetingReminderDeliveryStatus,
+  MeetingRemindersConfig,
+  MeetingRemindersStatus,
   MeetingStats,
   MeetingStatus,
   UpdateMeetingPayload,
 } from "./types";
-import { DEFAULT_MEETING_DURATION_MINUTES, MEETING_STATUSES } from "./types";
+import {
+  DEFAULT_MEETING_DURATION_MINUTES,
+  defaultRemindersConfig,
+  emptyRemindersStatus,
+  MEETING_REMINDER_OFFSETS,
+  MEETING_STATUSES,
+} from "./types";
 
 function buildAuthHeaders(): Record<string, string> {
   const token = getStoredAccessToken();
@@ -40,6 +51,100 @@ function isMeetingStatus(value: unknown): value is MeetingStatus {
   );
 }
 
+function parseChannelConfig(
+  raw: unknown,
+  fallbackEnabled: boolean,
+): MeetingReminderChannelConfig {
+  const base: MeetingReminderChannelConfig = {
+    "2d": fallbackEnabled,
+    "24h": fallbackEnabled,
+    "2h": fallbackEnabled,
+  };
+  if (!raw || typeof raw !== "object") return base;
+  const row = raw as Record<string, unknown>;
+  for (const offset of MEETING_REMINDER_OFFSETS) {
+    if (typeof row[offset] === "boolean") {
+      base[offset] = row[offset];
+      continue;
+    }
+    const alt =
+      offset === "2d" ? "enabled2d" : offset === "24h" ? "enabled24h" : "enabled2h";
+    if (typeof row[alt] === "boolean") base[offset] = row[alt];
+  }
+  return base;
+}
+
+function parseDeliveryStatus(value: unknown): MeetingReminderDeliveryStatus | null {
+  if (typeof value !== "string") return null;
+  const v = value.toLowerCase().trim();
+  if (v === "pending" || v === "sent" || v === "skipped" || v === "failed") {
+    return v;
+  }
+  return null;
+}
+
+function parseChannelStatus(
+  raw: unknown,
+  fallbackSent: boolean,
+): MeetingReminderChannelStatus {
+  const base: MeetingReminderChannelStatus = {
+    "2d": fallbackSent ? "sent" : "pending",
+    "24h": fallbackSent ? "sent" : "pending",
+    "2h": fallbackSent ? "sent" : "pending",
+  };
+  if (!raw || typeof raw !== "object") return base;
+  const row = raw as Record<string, unknown>;
+  for (const offset of MEETING_REMINDER_OFFSETS) {
+    const status = parseDeliveryStatus(row[offset]);
+    if (status) {
+      base[offset] = status;
+      continue;
+    }
+    if (typeof row[offset] === "boolean") {
+      base[offset] = row[offset] ? "sent" : "pending";
+    }
+  }
+  return base;
+}
+
+function parseRemindersConfig(
+  r: Record<string, unknown>,
+  hasPhone: boolean,
+  hasEmail: boolean,
+): MeetingRemindersConfig {
+  const nested = (r.reminders ?? r.reminderSettings ?? r.reminder_settings) as
+    | Record<string, unknown>
+    | undefined;
+  if (nested && typeof nested === "object") {
+    return {
+      whatsapp: parseChannelConfig(nested.whatsapp, hasPhone),
+      email: parseChannelConfig(nested.email, hasEmail),
+    };
+  }
+  return defaultRemindersConfig(hasPhone, hasEmail);
+}
+
+function parseRemindersStatus(
+  r: Record<string, unknown>,
+  _waSent: boolean,
+  _emailSent: boolean,
+): MeetingRemindersStatus {
+  const nested = (r.remindersStatus ??
+    r.reminderStatus ??
+    r.reminders_status ??
+    r.reminder_status) as Record<string, unknown> | undefined;
+  if (nested && typeof nested === "object") {
+    return {
+      // Ne pas dériver depuis reminderWhatsappSent / reminderEmailSent :
+      // ces flags peuvent venir d’un envoi manuel et ne doivent pas
+      // marquer J-2 / 24h / 2h comme « envoyé ».
+      whatsapp: parseChannelStatus(nested.whatsapp, false),
+      email: parseChannelStatus(nested.email, false),
+    };
+  }
+  return emptyRemindersStatus();
+}
+
 function parseMeeting(row: unknown): Meeting | null {
   if (!row || typeof row !== "object") return null;
   const r = row as Record<string, unknown>;
@@ -67,6 +172,20 @@ function parseMeeting(row: unknown): Meeting | null {
   const meetLinkRaw = r.meetLink ?? r.meet_link;
   const meetSpaceRaw = r.meetSpace ?? r.meet_space;
 
+  const contactPhone =
+    r.contactPhone == null && r.contact_phone == null
+      ? null
+      : String(r.contactPhone ?? r.contact_phone);
+  const contactEmail =
+    r.contactEmail == null && r.contact_email == null
+      ? null
+      : String(r.contactEmail ?? r.contact_email);
+
+  const reminderWhatsappSent = Boolean(
+    r.reminderWhatsappSent ?? r.reminder_whatsapp_sent,
+  );
+  const reminderEmailSent = Boolean(r.reminderEmailSent ?? r.reminder_email_sent);
+
   return {
     id,
     leadId:
@@ -76,19 +195,17 @@ function parseMeeting(row: unknown): Meeting | null {
     title,
     meetingDate,
     contactName,
-    contactPhone:
-      r.contactPhone == null && r.contact_phone == null
-        ? null
-        : String(r.contactPhone ?? r.contact_phone),
-    contactEmail:
-      r.contactEmail == null && r.contact_email == null
-        ? null
-        : String(r.contactEmail ?? r.contact_email),
+    contactPhone,
+    contactEmail,
     status,
-    reminderWhatsappSent: Boolean(
-      r.reminderWhatsappSent ?? r.reminder_whatsapp_sent,
+    reminderWhatsappSent,
+    reminderEmailSent,
+    reminders: parseRemindersConfig(
+      r,
+      Boolean(contactPhone?.trim()),
+      Boolean(contactEmail?.trim()),
     ),
-    reminderEmailSent: Boolean(r.reminderEmailSent ?? r.reminder_email_sent),
+    remindersStatus: parseRemindersStatus(r, reminderWhatsappSent, reminderEmailSent),
     notes: r.notes == null || r.notes === "" ? null : String(r.notes),
     meetLink:
       meetLinkRaw == null || meetLinkRaw === ""

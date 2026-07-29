@@ -26,12 +26,17 @@ import {
 } from "@/lib/meetings/backend-meetings";
 import { formatMeetingDateTime } from "@/lib/meetings/meeting-datetime";
 import type { Meeting, MeetingStatus } from "@/lib/meetings/types";
+import {
+  MEETING_REMINDER_OFFSETS,
+} from "@/lib/meetings/types";
 import { cn } from "@/src/lib/utils";
-import { MeetingStatusBadge, ReminderBadge } from "./MeetingBadges";
+import { MeetingStatusBadge, ReminderOffsetBadge } from "./MeetingBadges";
 
 type Props = {
   meeting: Meeting | null;
   isAdmin: boolean;
+  /** Envoi manuel du rappel — admin + admin_whatsapp. */
+  canSendReminder?: boolean;
   onClose: () => void;
   onEdit: (meeting: Meeting) => void;
   onChanged: (meeting: Meeting | null) => void;
@@ -40,6 +45,7 @@ type Props = {
 export function MeetingDetailPanel({
   meeting,
   isAdmin,
+  canSendReminder = false,
   onClose,
   onEdit,
   onChanged,
@@ -68,8 +74,9 @@ export function MeetingDetailPanel({
     setBusy(true);
     try {
       await sendMeetingReminder(meeting.id);
-      toast.success("Rappel envoyé.");
+      toast.success("Rappel manuel envoyé.");
       setConfirmReminder(false);
+      // Ne pas toucher remindersStatus (J-2 / 24h / 2h) — envoi manuel ≠ rappels auto.
       onChanged({
         ...meeting,
         reminderWhatsappSent:
@@ -234,23 +241,69 @@ export function MeetingDetailPanel({
 
           <div className="mt-6 rounded-xl border border-zinc-800 bg-zinc-900/50 p-4">
             <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-              Rappels
+              Rappels automatiques
             </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              <ReminderBadge label="WhatsApp" sent={meeting.reminderWhatsappSent} />
-              <ReminderBadge label="Email" sent={meeting.reminderEmailSent} />
-            </div>
-            <div className="mt-3 space-y-1.5 text-xs text-zinc-500">
-              <p className="flex items-center gap-2">
-                <MessageCircle className="size-3.5" />
-                WhatsApp :{" "}
-                {meeting.reminderWhatsappSent ? "envoyé" : "pas encore envoyé"}
-              </p>
-              <p className="flex items-center gap-2">
-                <Mail className="size-3.5" />
-                Email :{" "}
-                {meeting.reminderEmailSent ? "envoyé" : "pas encore envoyé"}
-              </p>
+            <p className="mt-1 text-xs text-zinc-500">
+              Envois prévus à J-2, 24 h et 2 h avant le rendez-vous.
+              L’envoi manuel n’impacte pas ce planning.
+            </p>
+
+            <div className="mt-4 space-y-3">
+              <div>
+                <p className="mb-2 flex items-center gap-2 text-xs font-medium text-zinc-300">
+                  <MessageCircle className="size-3.5 text-emerald-400" />
+                  WhatsApp
+                  {!meeting.contactPhone ? (
+                    <span className="font-normal text-zinc-600">· pas de téléphone</span>
+                  ) : null}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {MEETING_REMINDER_OFFSETS.map((offset) => (
+                    <ReminderOffsetBadge
+                      key={`wa-${offset}`}
+                      offset={offset}
+                      enabled={Boolean(
+                        meeting.contactPhone && meeting.reminders.whatsapp[offset],
+                      )}
+                      status={meeting.remindersStatus.whatsapp[offset]}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <p className="mb-2 flex items-center gap-2 text-xs font-medium text-zinc-300">
+                  <Mail className="size-3.5 text-sky-400" />
+                  Email
+                  {!meeting.contactEmail ? (
+                    <span className="font-normal text-zinc-600">· pas d&apos;email</span>
+                  ) : null}
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {MEETING_REMINDER_OFFSETS.map((offset) => (
+                    <ReminderOffsetBadge
+                      key={`em-${offset}`}
+                      offset={offset}
+                      enabled={Boolean(
+                        meeting.contactEmail && meeting.reminders.email[offset],
+                      )}
+                      status={meeting.remindersStatus.email[offset]}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {meeting.reminderWhatsappSent || meeting.reminderEmailSent ? (
+                <p className="rounded-lg border border-zinc-800 bg-zinc-950/50 px-3 py-2 text-[11px] text-zinc-500">
+                  Rappel manuel déjà envoyé
+                  {meeting.reminderWhatsappSent && meeting.reminderEmailSent
+                    ? " (WhatsApp + email)"
+                    : meeting.reminderWhatsappSent
+                      ? " (WhatsApp)"
+                      : " (email)"}
+                  . Les rappels automatiques restent inchangés.
+                </p>
+              ) : null}
             </div>
           </div>
 
@@ -291,27 +344,27 @@ export function MeetingDetailPanel({
         </div>
 
         <div className="shrink-0 space-y-2 border-t border-zinc-800 p-4">
+          {canSendReminder ? (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setConfirmReminder(true)}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2.5 text-sm font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
+            >
+              <Bell className="size-4" />
+              Envoyer le rappel maintenant
+            </button>
+          ) : null}
           {isAdmin ? (
-            <>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => setConfirmReminder(true)}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2.5 text-sm font-medium text-emerald-300 hover:bg-emerald-500/20 disabled:opacity-50"
-              >
-                <Bell className="size-4" />
-                Envoyer le rappel maintenant
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={() => setConfirmRegenerate(true)}
-                className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-700 px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
-              >
-                <RefreshCw className="size-4" />
-                Régénérer le lien Meet
-              </button>
-            </>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setConfirmRegenerate(true)}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-xl border border-zinc-700 px-4 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-50"
+            >
+              <RefreshCw className="size-4" />
+              Régénérer le lien Meet
+            </button>
           ) : null}
           <div className="flex gap-2">
             <button

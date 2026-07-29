@@ -20,7 +20,7 @@ import {
 import { format, getDay, parse, startOfWeek } from "date-fns";
 import { fr } from "date-fns/locale";
 import { toast } from "sonner";
-import { isFullAdminRole } from "@/lib/auth/roles";
+import { isAdminWhatsAppRole, isFullAdminRole } from "@/lib/auth/roles";
 import { getStoredUser } from "@/lib/auth/backend-login";
 import {
   fetchMeetingStats,
@@ -106,11 +106,14 @@ export function CalendrierPage() {
   const [editing, setEditing] = useState<Meeting | null>(null);
   const [prefillDate, setPrefillDate] = useState<Date | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [canSendReminder, setCanSendReminder] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
     const user = getStoredUser();
-    setIsAdmin(user ? isFullAdminRole(user.role) : false);
+    const role = user?.role ?? "";
+    setIsAdmin(isFullAdminRole(role));
+    setCanSendReminder(isFullAdminRole(role) || isAdminWhatsAppRole(role));
   }, []);
 
   useEffect(() => {
@@ -389,7 +392,7 @@ export function CalendrierPage() {
         ) : null}
 
         {!loading && showCalendar ? (
-          <div className="meetings-calendar overflow-hidden rounded-2xl border border-zinc-800 bg-zinc-900/40 p-3 sm:p-4">
+          <div className="meetings-calendar">
             <div className="mb-3 flex items-center justify-between gap-2">
               <button
                 type="button"
@@ -476,6 +479,7 @@ export function CalendrierPage() {
       <MeetingDetailPanel
         meeting={selected}
         isAdmin={isAdmin}
+        canSendReminder={canSendReminder}
         onClose={() => setSelected(null)}
         onEdit={openEdit}
         onChanged={(m) => {

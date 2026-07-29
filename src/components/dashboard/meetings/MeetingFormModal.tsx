@@ -21,7 +21,9 @@ import {
   MEETING_DURATION_OPTIONS,
   MEETING_STATUSES,
   MEETING_STATUS_LABELS,
+  defaultRemindersConfig,
   type Meeting,
+  type MeetingRemindersConfig,
   type MeetingStatus,
 } from "@/lib/meetings/types";
 import { cn } from "@/src/lib/utils";
@@ -38,6 +40,7 @@ type FormState = {
   status: MeetingStatus;
   notes: string;
   manualContact: boolean;
+  reminders: MeetingRemindersConfig;
 };
 
 function pad(n: number) {
@@ -67,6 +70,7 @@ const emptyForm = (prefillDate?: Date | null): FormState => {
     status: "scheduled",
     notes: "",
     manualContact: false,
+    reminders: defaultRemindersConfig(true, true),
   };
 };
 
@@ -84,6 +88,10 @@ function meetingToForm(meeting: Meeting): FormState {
     status: meeting.status,
     notes: meeting.notes ?? "",
     manualContact: !meeting.leadId,
+    reminders: meeting.reminders ?? defaultRemindersConfig(
+      Boolean(meeting.contactPhone?.trim()),
+      Boolean(meeting.contactEmail?.trim()),
+    ),
   };
 }
 
@@ -227,6 +235,7 @@ export function MeetingFormModal({
         status: form.status,
         notes: form.notes.trim() || undefined,
         leadId: form.manualContact ? undefined : form.leadId || undefined,
+        reminders: form.reminders,
       };
 
       const saved =
