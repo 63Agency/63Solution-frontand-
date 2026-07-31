@@ -1,6 +1,9 @@
 import { getApiBaseUrl, getStoredAccessToken } from "../auth/backend-login";
 import type {
+  BlockedDay,
+  CreateBlockedDayPayload,
   CreateMeetingPayload,
+  ListBlockedDaysQuery,
   ListMeetingsQuery,
   Meeting,
   MeetingReminderChannelConfig,
@@ -406,4 +409,95 @@ export async function regenerateMeetingMeetLink(id: string): Promise<Meeting> {
   const meeting = parseMeeting(await res.json().catch(() => null));
   if (!meeting) throw new Error("Réponse régénération Meet invalide.");
   return meeting;
+}
+
+function parseBlockedDay(row: unknown): BlockedDay | null {
+  if (!row || typeof row !== "object") return null;
+  const r = row as Record<string, unknown>;
+  const id = String(r.id ?? "");
+  const date = String(r.date ?? r.blockedDate ?? r.blocked_date ?? "").trim();
+  if (!id || !/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
+
+  const reasonRaw = r.reason ?? r.note ?? r.notes;
+  const createdByRaw = r.createdBy ?? r.created_by;
+
+  return {
+    id,
+    date,
+    reason:
+      reasonRaw == null || reasonRaw === "" ? null : String(reasonRaw).trim(),
+    createdAt: String(r.createdAt ?? r.created_at ?? ""),
+    createdBy:
+      createdByRaw == null || createdByRaw === ""
+        ? null
+        : String(createdByRaw),
+  };
+}
+
+function parseBlockedDayList(raw: unknown): BlockedDay[] {
+  if (Array.isArray(raw)) {
+    return raw.map(parseBlockedDay).filter((d): d is BlockedDay => d != null);
+  }
+  if (raw && typeof raw === "object") {
+    const items = (raw as { items?: unknown }).items;
+    if (Array.isArray(items)) {
+      return items
+        .map(parseBlockedDay)
+        .filter((d): d is BlockedDay => d != null);
+    }
+  }
+  return [];
+}
+
+export async function fetchBlockedDays(
+  query: ListBlockedDaysQuery = {},
+): Promise<BlockedDay[]> {
+  const base = requireApiBase();
+  const params = new URLSearchParams();
+  if (query.from) params.set("from", query.from);
+  if (query.to) params.set("to", query.to);
+
+  const qs = params.toString();
+  const res = await fetch(
+    `${base}/meetings/blocked-days${qs ? `?${qs}` : ""}`,
+    {
+      method: "GET",
+      headers: buildAuthHeaders(),
+      credentials: "include",
+      cache: "no-store",
+    },
+  );
+
+  if (!res.ok) return parseApiError(res, "GET /meetings/blocked-days");
+  const raw = await res.json().catch(() => null);
+  return parseBlockedDayList(raw);
+}
+
+export async function createBlockedDay(
+  payload: CreateBlockedDayPayload,
+): Promise<BlockedDay> {
+  const base = requireApiBase();
+  const res = await fetch(`${base}/meetings/blocked-days`, {
+    method: "POST",
+    headers: buildAuthHeaders(),
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) return parseApiError(res, "POST /meetings/blocked-days");
+  const day = parseBlockedDay(await res.json().catch(() => null));
+  if (!day) throw new Error("Réponse jour bloqué invalide.");
+  return day;
+}
+
+export async function deleteBlockedDay(id: string): Promise<void> {
+  const base = requireApiBase();
+  const res = await fetch(
+    `${base}/meetings/blocked-days/${encodeURIComponent(id)}`,
+    {
+      method: "DELETE",
+      headers: buildAuthHeaders(),
+      credentials: "include",
+    },
+  );
+  if (!res.ok) return parseApiError(res, `DELETE /meetings/blocked-days/${id}`);
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, forwardRef } from "react";
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -9,6 +9,7 @@ import {
   ExternalLink,
   Loader2,
   Plus,
+  Ban,
 } from "lucide-react";
 import {
   Calendar,
@@ -23,9 +24,12 @@ import { toast } from "sonner";
 import { isAdminWhatsAppRole, isFullAdminRole } from "@/lib/auth/roles";
 import { getStoredUser } from "@/lib/auth/backend-login";
 import {
+  fetchBlockedDays,
   fetchMeetingStats,
   fetchMeetings,
 } from "@/lib/meetings/backend-meetings";
+import { blockedDayKeys, blockedDayMap, filterUpcomingBlockedDays, getBlockedDay, isActiveBlockedDay } from "@/lib/meetings/blocked-days";
+import { countMeetingsByDate, getMeetingCountForDate } from "@/lib/meetings/calendar-meetings";
 import {
   calendarRangeIso,
   casablancaDayKey,
@@ -38,8 +42,11 @@ import {
   type Meeting,
   type MeetingStats,
   type MeetingStatus,
+  type BlockedDay,
 } from "@/lib/meetings/types";
 import { cn } from "@/src/lib/utils";
+import { BlockedDaysPanel } from "./BlockedDaysPanel";
+import { CalendarDayHeader, CalendarShowMore } from "./CalendarDayHeader";
 import { MeetingDetailPanel } from "./MeetingDetailPanel";
 import { MeetingFormModal } from "./MeetingFormModal";
 import "react-big-calendar/lib/css/react-big-calendar.css";
@@ -108,6 +115,13 @@ export function CalendrierPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [canSendReminder, setCanSendReminder] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  const [blockedDays, setBlockedDays] = useState<BlockedDay[]>([]);
+  const [blockedDaysOpen, setBlockedDaysOpen] = useState(false);
+  const [blockedPanelMode, setBlockedPanelMode] = useState<"block" | "unblock" | "view">("block");
+  const [blockedFocusDate, setBlockedFocusDate] = useState<string | null>(null);
+  const tableSectionRef = useRef<HTMLElement>(null);
+
+  const todayKey = casablancaDayKey();
 
   useEffect(() => {
     const user = getStoredUser();
@@ -130,6 +144,72 @@ export function CalendrierPage() {
   const effectiveView: AppView = isMobile ? "list" : view;
   /** Calendar only for Mois/Semaine on desktop; table always visible below. */
   const showCalendar = !isMobile && effectiveView !== "list";
+
+  const upcomingBlocked = useMemo(
+    () => filterUpcomingBlockedDays(blockedDays, todayKey),
+    [blockedDays, todayKey],
+  );
+  const activeBlockedKeys = useMemo(
+    () => blockedDayKeys(upcomingBlocked),
+    [upcomingBlocked],
+  );
+  const activeBlockedByDate = useMemo(
+    () => blockedDayMap(upcomingBlocked),
+    [upcomingBlocked],
+  );
+  const meetingsCountByDate = useMemo(
+    () => countMeetingsByDate(meetings),
+    [meetings],
+  );
+
+  const openBlockPanel = useCallback((dateKey?: string | null) => {
+    setBlockedPanelMode("block");
+    setBlockedFocusDate(dateKey ?? null);
+    setBlockedDaysOpen(true);
+  }, []);
+
+  const openUnblockPanel = useCallback((dateKey: string) => {
+    setBlockedPanelMode("unblock");
+    setBlockedFocusDate(dateKey);
+    setBlockedDaysOpen(true);
+  }, []);
+
+  const openViewBlockedPanel = useCallback((dateKey: string) => {
+    setBlockedPanelMode("view");
+    setBlockedFocusDate(dateKey);
+    setBlockedDaysOpen(true);
+  }, []);
+
+  const focusDayInTable = useCallback((date: Date) => {
+    const key = casablancaDayKey(date);
+    setCustomDate(key);
+    setDayFilter("date");
+    requestAnimationFrame(() => {
+      tableSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }, []);
+
+  const loadBlockedDays = useCallback(async () => {
+    try {
+      const futureEnd = casablancaDayKey(
+        new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
+      );
+      const range =
+        effectiveView === "list"
+          ? { from: todayKey, to: futureEnd }
+          : (() => {
+              const { to } = calendarRangeIso(calendarDate);
+              return {
+                from: todayKey,
+                to: casablancaDayKey(to),
+              };
+            })();
+      const days = await fetchBlockedDays(range);
+      setBlockedDays(filterUpcomingBlockedDays(days, todayKey));
+    } catch {
+      setBlockedDays([]);
+    }
+  }, [calendarDate, effectiveView, todayKey]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -170,6 +250,10 @@ export function CalendrierPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void loadBlockedDays();
+  }, [loadBlockedDays]);
 
   const events: CalendarEvent[] = useMemo(
     () =>
@@ -217,6 +301,14 @@ export function CalendrierPage() {
   const rbcView: View = effectiveView === "week" ? "week" : "month";
 
   const openCreate = (date?: Date) => {
+    if (date && isActiveBlockedDay(date, activeBlockedKeys, todayKey)) {
+      if (isAdmin) {
+        openUnblockPanel(casablancaDayKey(date));
+      } else {
+        openViewBlockedPanel(casablancaDayKey(date));
+      }
+      return;
+    }
     setEditing(null);
     setPrefillDate(date ?? new Date());
     setFormOpen(true);
@@ -230,6 +322,17 @@ export function CalendrierPage() {
   };
 
   const handleSelectSlot = (slot: SlotInfo) => {
+    const dayKey = casablancaDayKey(slot.start);
+
+    if (isActiveBlockedDay(slot.start, activeBlockedKeys, todayKey)) {
+      if (isAdmin) {
+        openUnblockPanel(dayKey);
+      } else {
+        openViewBlockedPanel(dayKey);
+      }
+      return;
+    }
+
     openCreate(slot.start);
   };
 
@@ -264,6 +367,45 @@ export function CalendrierPage() {
     };
   };
 
+  const dayPropGetter = (date: Date) => {
+    if (!isActiveBlockedDay(date, activeBlockedKeys, todayKey)) return {};
+    const blocked = getBlockedDay(date, activeBlockedByDate);
+    return {
+      className: "rbc-blocked-day",
+      title: blocked?.reason
+        ? `Indisponible — ${blocked.reason}`
+        : "Jour indisponible",
+    };
+  };
+
+  const calendarComponents = useMemo(
+    () => ({
+      event: EventChip,
+      showMore: CalendarShowMore,
+      month: {
+        dateHeader: ({ label, date }: { label: string; date: Date }) => (
+          <CalendarDayHeader
+            label={label}
+            meetingCount={getMeetingCountForDate(date, meetingsCountByDate)}
+            blocked={
+              isActiveBlockedDay(date, activeBlockedKeys, todayKey)
+                ? getBlockedDay(date, activeBlockedByDate)
+                : undefined
+            }
+            onMeetingCountClick={() => focusDayInTable(date)}
+          />
+        ),
+      },
+    }),
+    [
+      activeBlockedByDate,
+      activeBlockedKeys,
+      focusDayInTable,
+      meetingsCountByDate,
+      todayKey,
+    ],
+  );
+
   const messages = {
     today: "Aujourd'hui",
     previous: "Précédent",
@@ -276,7 +418,7 @@ export function CalendrierPage() {
     time: "Heure",
     event: "Événement",
     noEventsInRange: "Aucun rendez-vous sur cette période.",
-    showMore: (total: number) => `+${total} de plus`,
+    showMore: (total: number) => `+${total} RDV`,
   };
 
   return (
@@ -294,14 +436,26 @@ export function CalendrierPage() {
               Rendez-vous · fuseau Africa/Casablanca
             </p>
           </div>
-          <button
-            type="button"
-            onClick={() => openCreate()}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-500 bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500"
-          >
-            <Plus className="size-4" />
-            Nouveau rendez-vous
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+            {isAdmin ? (
+              <button
+                type="button"
+                onClick={() => openBlockPanel()}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900 px-4 py-2.5 text-sm font-medium text-zinc-200 transition hover:bg-zinc-800"
+              >
+                <Ban className="size-4 text-red-400" />
+                Indisponibilités
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => openCreate()}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-500 bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500"
+            >
+              <Plus className="size-4" />
+              Nouveau rendez-vous
+            </button>
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
@@ -448,7 +602,8 @@ export function CalendrierPage() {
                 onSelectSlot={handleSelectSlot}
                 onSelectEvent={handleSelectEvent}
                 eventPropGetter={eventStyleGetter}
-                components={{ event: EventChip }}
+                dayPropGetter={dayPropGetter}
+                components={calendarComponents}
                 min={effectiveView === "week" ? WEEK_MIN : undefined}
                 max={effectiveView === "week" ? WEEK_MAX : undefined}
                 step={30}
@@ -461,7 +616,13 @@ export function CalendrierPage() {
 
         {!loading ? (
           <MeetingsFilteredTable
+            ref={tableSectionRef}
             meetings={tableMeetings}
+            totalMeetingsOnDay={
+              dayFilter === "date" && customDate
+                ? getMeetingCountForDate(customDate, meetingsCountByDate)
+                : undefined
+            }
             dayFilter={dayFilter}
             customDate={customDate}
             sortAsc={listSortAsc}
@@ -497,6 +658,8 @@ export function CalendrierPage() {
         open={formOpen}
         meeting={editing}
         prefillDate={prefillDate}
+        blockedDayKeys={activeBlockedKeys}
+        blockedDays={upcomingBlocked}
         onClose={() => {
           setFormOpen(false);
           setEditing(null);
@@ -504,29 +667,54 @@ export function CalendrierPage() {
         }}
         onSaved={handleSaved}
       />
+
+      <BlockedDaysPanel
+        open={blockedDaysOpen}
+        mode={blockedPanelMode}
+        blockedDay={
+          blockedFocusDate
+            ? getBlockedDay(blockedFocusDate, activeBlockedByDate) ?? null
+            : null
+        }
+        prefillDate={blockedFocusDate}
+        blockedDays={upcomingBlocked}
+        onClose={() => {
+          setBlockedDaysOpen(false);
+          setBlockedFocusDate(null);
+        }}
+        onChanged={() => void loadBlockedDays()}
+      />
     </div>
   );
 }
 
-function MeetingsFilteredTable({
-  meetings,
-  dayFilter,
-  customDate,
-  sortAsc,
-  onDayFilterChange,
-  onCustomDateChange,
-  onToggleSort,
-  onSelect,
-}: {
-  meetings: Meeting[];
-  dayFilter: DayFilter;
-  customDate: string;
-  sortAsc: boolean;
-  onDayFilterChange: (filter: DayFilter) => void;
-  onCustomDateChange: (value: string) => void;
-  onToggleSort: () => void;
-  onSelect: (m: Meeting) => void;
-}) {
+const MeetingsFilteredTable = forwardRef<
+  HTMLElement,
+  {
+    meetings: Meeting[];
+    totalMeetingsOnDay?: number;
+    dayFilter: DayFilter;
+    customDate: string;
+    sortAsc: boolean;
+    onDayFilterChange: (filter: DayFilter) => void;
+    onCustomDateChange: (value: string) => void;
+    onToggleSort: () => void;
+    onSelect: (m: Meeting) => void;
+  }
+>(function MeetingsFilteredTable(
+  {
+    meetings,
+    totalMeetingsOnDay,
+    dayFilter,
+    customDate,
+    sortAsc,
+    onDayFilterChange,
+    onCustomDateChange,
+    onToggleSort,
+    onSelect,
+  },
+  ref,
+) {
   const [currentPage, setCurrentPage] = useState(1);
   const PER_PAGE = 10;
 
@@ -584,12 +772,17 @@ function MeetingsFilteredTable({
   }, [currentPage, totalPages]);
 
   return (
-    <section className="min-h-[200px]">
+    <section ref={ref} className="min-h-[200px]">
       <div className="mb-4 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h3 className="text-base font-medium text-white">Rendez-vous</h3>
           <p className="text-xs uppercase tracking-widest text-zinc-500">
             {meetings.length} rendez-vous — {filterLabel}
+            {totalMeetingsOnDay != null && totalMeetingsOnDay > 0 ? (
+              <span className="ml-2 inline-flex items-center rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium normal-case tracking-normal text-emerald-300">
+                {totalMeetingsOnDay} ce jour
+              </span>
+            ) : null}
           </p>
         </div>
 
@@ -759,4 +952,4 @@ function MeetingsFilteredTable({
       ) : null}
     </section>
   );
-}
+});

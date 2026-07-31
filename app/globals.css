@@ -316,9 +316,59 @@ a[class*="tracking-widest"]:not([class*="rounded-full"]):not([class*="rounded-3x
   font-size: 11px;
 }
 
+.meetings-calendar .rbc-show-more-custom {
+  display: block;
+  width: 100%;
+  border: none;
+  cursor: pointer;
+}
+
+.meetings-calendar .rbc-row-segment {
+  padding: 0 2px 2px;
+}
+
+.meetings-calendar .rbc-event {
+  margin-bottom: 1px;
+}
+
 .meetings-calendar .rbc-overlay {
   background: #18181b;
   border: 1px solid #3f3f46;
   border-radius: 0.75rem;
   color: #e4e4e7;
+  padding: 6px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+}
+
+.meetings-calendar .rbc-overlay-header {
+  border-bottom: 1px solid #27272a;
+  margin: -2px -2px 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #e4e4e7;
+}
+
+.meetings-calendar .rbc-overlay-event {
+  border-radius: 6px;
+  margin: 2px 0;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.meetings-calendar .rbc-blocked-day {
+  position: relative;
+  background: rgba(127, 29, 29, 0.12) !important;
+}
+
+.meetings-calendar .rbc-blocked-day.rbc-today {
+  background: rgba(127, 29, 29, 0.18) !important;
+}
+
+.meetings-calendar .rbc-blocked-day::before {
+  content: "";
+  pointer-events: none;
+  position: absolute;
+  inset: 0;
+  border: 1px solid rgba(239, 68, 68, 0.15);
 }

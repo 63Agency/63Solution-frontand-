@@ -172,3 +172,23 @@ export const MEETING_STATUS_COLORS: Record<
 export const DEFAULT_MEETING_DURATION_MINUTES = 60;
 
 export const MEETING_DURATION_OPTIONS = [15, 30, 45, 60, 90, 120] as const;
+
+/** Jour bloqué — aucun RDV ne peut être planifié (timezone Casablanca, clé `date`). */
+export type BlockedDay = {
+  id: string;
+  /** YYYY-MM-DD (Africa/Casablanca). */
+  date: string;
+  reason: string | null;
+  createdAt: string;
+  createdBy: string | null;
+};
+
+export type CreateBlockedDayPayload = {
+  date: string;
+  reason?: string;
+};
+
+export type ListBlockedDaysQuery = {
+  from?: string;
+  to?: string;
+};

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Loader2, Search, UserRound, X } from "lucide-react";
+import { Loader2, Search, UserRound, X, CalendarOff } from "lucide-react";
 import { toast } from "sonner";
 import { fetchLeads } from "@/lib/leads/api-leads";
 import { cleanLeadDisplayName } from "@/lib/leads/phone-extract";
@@ -16,6 +16,7 @@ import {
   isoToDateAndTime,
   isValidInternationalPhone,
 } from "@/lib/meetings/meeting-datetime";
+import { isBlockedDay, getBlockedDay } from "@/lib/meetings/blocked-days";
 import {
   DEFAULT_MEETING_DURATION_MINUTES,
   MEETING_DURATION_OPTIONS,
@@ -25,6 +26,7 @@ import {
   type Meeting,
   type MeetingRemindersConfig,
   type MeetingStatus,
+  type BlockedDay,
 } from "@/lib/meetings/types";
 import { cn } from "@/src/lib/utils";
 
@@ -99,6 +101,8 @@ type Props = {
   open: boolean;
   meeting?: Meeting | null;
   prefillDate?: Date | null;
+  blockedDayKeys?: Set<string>;
+  blockedDays?: BlockedDay[];
   onClose: () => void;
   onSaved: (meeting: Meeting) => void;
 };
@@ -107,6 +111,8 @@ export function MeetingFormModal({
   open,
   meeting,
   prefillDate,
+  blockedDayKeys,
+  blockedDays,
   onClose,
   onSaved,
 }: Props) {
@@ -171,6 +177,16 @@ export function MeetingFormModal({
       .slice(0, 30);
   }, [leads, leadQuery]);
 
+  const dateIsBlocked =
+    Boolean(form.date.trim()) &&
+    blockedDayKeys != null &&
+    isBlockedDay(form.date, blockedDayKeys);
+
+  const blockedReason =
+    dateIsBlocked && form.date
+      ? getBlockedDay(form.date, blockedDays ?? [])?.reason
+      : null;
+
   if (!open) return null;
 
   const setField = <K extends keyof FormState>(key: K, value: FormState[K]) => {
@@ -207,6 +223,14 @@ export function MeetingFormModal({
     }
     if (!meetingDate) {
       toast.error("Date ou heure invalide.");
+      return;
+    }
+    if (blockedDayKeys && isBlockedDay(form.date, blockedDayKeys)) {
+      toast.error("Date indisponible", {
+        description:
+          blockedReason ??
+          "Cette date a été bloquée par l'administrateur.",
+      });
       return;
     }
     if (!contactName) {
@@ -312,8 +336,28 @@ export function MeetingFormModal({
                 min={isEdit ? undefined : casablancaDayKey()}
                 onChange={(e) => setField("date", e.target.value)}
                 required
-                className="mt-1.5 w-full rounded-xl border border-zinc-700 bg-zinc-950/80 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30"
+                className={cn(
+                  "mt-1.5 w-full rounded-xl border bg-zinc-950/80 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:ring-1",
+                  dateIsBlocked
+                    ? "border-red-500/70 focus:border-red-500 focus:ring-red-500/30"
+                    : "border-zinc-700 focus:border-emerald-500 focus:ring-emerald-500/30",
+                )}
               />
+              {dateIsBlocked ? (
+                <div className="mt-2 flex items-start gap-2 rounded-xl border border-red-500/25 bg-red-500/8 px-3 py-2.5">
+                  <CalendarOff className="mt-0.5 size-4 shrink-0 text-red-400" />
+                  <div>
+                    <p className="text-xs font-medium text-red-200">
+                      Date indisponible
+                    </p>
+                    <p className="mt-0.5 text-[11px] leading-relaxed text-red-300/80">
+                      {blockedReason
+                        ? blockedReason
+                        : "Aucun rendez-vous ne peut être planifié ce jour."}
+                    </p>
+                  </div>
+                </div>
+              ) : null}
             </label>
             <label className="block">
               <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
@@ -496,7 +540,7 @@ export function MeetingFormModal({
             </button>
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || dateIsBlocked}
               className={cn(
                 "inline-flex items-center gap-2 rounded-xl border border-emerald-500 bg-emerald-600 px-4 py-2 font-mono text-[11px] uppercase tracking-widest text-white hover:bg-emerald-500 disabled:opacity-50",
               )}
