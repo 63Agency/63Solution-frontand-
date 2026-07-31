@@ -47,6 +47,11 @@ export function canAccessParametres(role: string): boolean {
   return isFullAdminRole(role);
 }
 
+/** Envoi manuel d’un rappel RDV (WhatsApp / email) — admin + admin_whatsapp. */
+export function canSendMeetingReminder(role: string): boolean {
+  return isFullAdminRole(role) || isAdminWhatsAppRole(role);
+}
+
 const FULL_ADMIN_NAV = [
   "/dashboard",
   "/dashboard/factures",

@@ -21,7 +21,10 @@ import {
 import { format, getDay, parse, startOfWeek } from "date-fns";
 import { fr } from "date-fns/locale";
 import { toast } from "sonner";
-import { isAdminWhatsAppRole, isFullAdminRole } from "@/lib/auth/roles";
+import {
+  canSendMeetingReminder,
+  isFullAdminRole,
+} from "@/lib/auth/roles";
 import { getStoredUser } from "@/lib/auth/backend-login";
 import {
   fetchBlockedDays,
@@ -127,7 +130,7 @@ export function CalendrierPage() {
     const user = getStoredUser();
     const role = user?.role ?? "";
     setIsAdmin(isFullAdminRole(role));
-    setCanSendReminder(isFullAdminRole(role) || isAdminWhatsAppRole(role));
+    setCanSendReminder(canSendMeetingReminder(role));
   }, []);
 
   useEffect(() => {

@@ -93,7 +93,17 @@ Les flags legacy `reminderWhatsappSent` / `reminderEmailSent` restent supportés
 
 ## Endpoint manuel (existant)
 
-`POST /meetings/:id/send-reminder` — envoi immédiat (admin).
+`POST /meetings/:id/send-reminder` — envoi immédiat.
+
+### Rôles autorisés
+
+| Rôle | Accès |
+|------|--------|
+| `admin` / `superadmin` | Oui |
+| `admin_whatsapp` | **Oui** (même droits que admin pour cet endpoint) |
+| Autres | Non → `403 Forbidden` |
+
+Le frontend affiche déjà le bouton **« Envoyer le rappel maintenant »** pour `admin` et `admin_whatsapp`. Si le backend refuse encore `admin_whatsapp` avec un `403`, le bouton échoue côté utilisateur.
 
 **Important — séparation manuel vs automatique :**
 
@@ -114,3 +124,5 @@ Optionnel : accepter `{ "channel": "whatsapp" | "email", "offset": "2h" }` pour 
 5. Templates WhatsApp + email prêts  
 6. Logs d’échec + status `failed`  
 7. `POST .../send-reminder` manuel ≠ mise à jour des status auto J-2/24h/2h  
+8. Autoriser **`admin` + `admin_whatsapp`** sur `POST /meetings/:id/send-reminder`  
+
