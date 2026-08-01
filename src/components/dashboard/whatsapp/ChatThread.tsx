@@ -30,8 +30,10 @@ import {
   uploadChatMedia,
 } from "@/lib/upload/backend-upload";
 import {
+  deleteWhatsAppMessage,
   fetchWhatsAppMessages,
   sendWhatsAppMessage,
+  updateWhatsAppMessage,
 } from "@/lib/whatsapp/backend-whatsapp";
 import { mergeMessageStatus } from "@/lib/whatsapp/message-status";
 import {
@@ -111,6 +113,7 @@ type PendingSendRetry =
     };
 
 function messagePreview(message: WhatsAppMessage): string {
+  if (message.isDeleted || message.deletedAt) return "Message supprimé";
   if (message.type === "image") return message.body?.trim() || "Photo";
   if (message.type === "video") return message.body?.trim() || "Vidéo";
   if (message.type === "document")
@@ -119,6 +122,19 @@ function messagePreview(message: WhatsAppMessage): string {
   const t = message.body?.trim() ?? "";
   if (!t) return "Message";
   return t.length > 80 ? `${t.slice(0, 80)}…` : t;
+}
+
+function canEditMessage(message: WhatsAppMessage): boolean {
+  if (message.isDeleted || message.deletedAt) return false;
+  if (message.direction !== "outbound") return false;
+  if (message.type !== "text") return false;
+  if (message.id.startsWith("local-") && message.status === "pending") return false;
+  return Boolean(message.body?.trim());
+}
+
+function canDeleteMessage(message: WhatsAppMessage): boolean {
+  if (message.isDeleted || message.deletedAt) return false;
+  return true;
 }
 
 function MessageTimeline({
@@ -196,11 +212,17 @@ export function ChatThread({
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [attachOpen, setAttachOpen] = useState(false);
   const [replyTo, setReplyTo] = useState<WhatsAppMessage | null>(null);
+  const [editingMessage, setEditingMessage] = useState<WhatsAppMessage | null>(
+    null,
+  );
   const [menu, setMenu] = useState<{
     message: WhatsAppMessage;
     x: number;
     y: number;
   } | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<WhatsAppMessage | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [contactInfoOpen, setContactInfoOpen] = useState(false);
   const [preview, setPreview] = useState<{
     file: File;
@@ -275,13 +297,35 @@ export function ChatThread({
         const mergedRemote = page.items.map((remote) => {
           const local = prevById.get(remote.id);
           if (!local) return remote;
+          // Keep optimistic soft-delete until API returns isDeleted / drops the row
+          if ((local.isDeleted || local.deletedAt) && !remote.isDeleted && !remote.deletedAt) {
+            return {
+              ...local,
+              status: mergeMessageStatus(local.status, remote.status),
+            };
+          }
           return {
             ...remote,
             status: mergeMessageStatus(local.status, remote.status),
             replyTo: remote.replyTo ?? local.replyTo,
+            editedAt: remote.editedAt ?? local.editedAt,
+            deletedAt: remote.deletedAt ?? local.deletedAt,
+            isDeleted: Boolean(remote.isDeleted || local.isDeleted),
+            // Keep optimistic edit until API echoes editedAt
+            body:
+              local.editedAt && !remote.editedAt && local.body !== remote.body
+                ? local.body
+                : remote.body,
           };
         });
+        // Soft-deleted messages removed from GET should stay gone
         const remoteIds = new Set(mergedRemote.map((m) => m.id));
+        const softDeletedMissing = prev.filter(
+          (m) =>
+            (m.isDeleted || m.deletedAt) &&
+            !m.id.startsWith("local-") &&
+            !remoteIds.has(m.id),
+        );
         const remoteMetaIds = new Set(
           mergedRemote
             .map((m) => m.metaMessageId?.trim() || m.watiMessageId?.trim())
@@ -299,7 +343,7 @@ export function ChatThread({
             m.uploadError
           );
         });
-        return [...mergedRemote, ...locals].sort(
+        return [...mergedRemote, ...softDeletedMissing, ...locals].sort(
           (a, b) =>
             new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
         );
@@ -322,6 +366,10 @@ export function ChatThread({
   useEffect(() => {
     void loadMessages();
     setSessionWindowClosed(false);
+    setEditingMessage(null);
+    setDeleteTarget(null);
+    setReplyTo(null);
+    setDraft("");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
 
@@ -381,11 +429,155 @@ export function ChatThread({
   };
 
   const startReply = (message: WhatsAppMessage) => {
+    if (message.isDeleted || message.deletedAt) return;
+    setEditingMessage(null);
     setReplyTo(message);
     setMenu(null);
     setEmojiOpen(false);
     setAttachOpen(false);
     requestAnimationFrame(() => textareaRef.current?.focus());
+  };
+
+  const startEdit = (message: WhatsAppMessage) => {
+    if (!canEditMessage(message)) return;
+    setReplyTo(null);
+    setEditingMessage(message);
+    setDraft(message.body ?? "");
+    setMenu(null);
+    setEmojiOpen(false);
+    setAttachOpen(false);
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  };
+
+  const cancelEdit = () => {
+    setEditingMessage(null);
+    setDraft("");
+  };
+
+  const handleSaveEdit = async () => {
+    if (!conversationId || !editingMessage || !draft.trim() || savingEdit) return;
+    const text = draft.trim();
+    if (text === (editingMessage.body ?? "").trim()) {
+      cancelEdit();
+      return;
+    }
+
+    // Optimistic local-only edit for failed unsent bubbles
+    if (editingMessage.id.startsWith("local-")) {
+      const retry = pendingRetriesRef.current.get(editingMessage.id);
+      if (retry?.kind === "text") {
+        pendingRetriesRef.current.set(editingMessage.id, { ...retry, text });
+      }
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === editingMessage.id
+            ? {
+                ...m,
+                body: text,
+                editedAt: new Date().toISOString(),
+              }
+            : m,
+        ),
+      );
+      cancelEdit();
+      toast.success("Message modifié");
+      return;
+    }
+
+    setSavingEdit(true);
+    const previous = editingMessage;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === previous.id
+          ? { ...m, body: text, editedAt: new Date().toISOString() }
+          : m,
+      ),
+    );
+    setEditingMessage(null);
+    setDraft("");
+
+    try {
+      const updated = await updateWhatsAppMessage(conversationId, previous.id, {
+        text,
+      });
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === previous.id
+            ? {
+                ...updated,
+                replyTo: updated.replyTo ?? m.replyTo,
+                editedAt: updated.editedAt ?? new Date().toISOString(),
+              }
+            : m,
+        ),
+      );
+      onConversationUpdate();
+      toast.success("Message modifié");
+    } catch (e) {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === previous.id ? previous : m)),
+      );
+      setEditingMessage(previous);
+      setDraft(text);
+      toast.error(
+        e instanceof Error ? e.message : "Modification impossible.",
+      );
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleConfirmDelete = async (forEveryone: boolean) => {
+    if (!conversationId || !deleteTarget || deleting) return;
+    const target = deleteTarget;
+    setDeleting(true);
+
+    // Unsent local bubble: drop from UI only
+    if (target.id.startsWith("local-")) {
+      pendingFilesRef.current.delete(target.id);
+      pendingRetriesRef.current.delete(target.id);
+      setMessages((prev) => prev.filter((m) => m.id !== target.id));
+      setDeleteTarget(null);
+      setDeleting(false);
+      if (editingMessage?.id === target.id) cancelEdit();
+      if (replyTo?.id === target.id) setReplyTo(null);
+      toast.success("Message supprimé");
+      return;
+    }
+
+    const snapshot = messages;
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === target.id
+          ? {
+              ...m,
+              isDeleted: true,
+              deletedAt: new Date().toISOString(),
+              body: "",
+            }
+          : m,
+      ),
+    );
+    setDeleteTarget(null);
+    if (editingMessage?.id === target.id) cancelEdit();
+    if (replyTo?.id === target.id) setReplyTo(null);
+
+    try {
+      await deleteWhatsAppMessage(conversationId, target.id, { forEveryone });
+      onConversationUpdate();
+      toast.success(
+        forEveryone
+          ? "Message supprimé pour tout le monde"
+          : "Message supprimé",
+      );
+    } catch (e) {
+      setMessages(snapshot);
+      toast.error(
+        e instanceof Error ? e.message : "Suppression impossible.",
+      );
+    } finally {
+      setDeleting(false);
+    }
   };
 
   const handleMenuAction = (action: MessageMenuAction, reaction?: string) => {
@@ -398,11 +590,19 @@ export function ChatThread({
       return;
     }
     if (action === "copy") {
+      if (msg.isDeleted || msg.deletedAt) {
+        toast.message("Ce message a été supprimé");
+        return;
+      }
       const text = msg.body?.trim() || messagePreview(msg);
       void navigator.clipboard.writeText(text).then(
         () => toast.success("Message copié"),
         () => toast.error("Impossible de copier"),
       );
+      return;
+    }
+    if (action === "edit") {
+      startEdit(msg);
       return;
     }
     if (action === "reaction" && reaction) {
@@ -412,13 +612,21 @@ export function ChatThread({
       return;
     }
     if (action === "delete") {
-      toast.message("Suppression non disponible pour le moment.");
+      if (!canDeleteMessage(msg)) {
+        toast.message("Ce message a déjà été supprimé");
+        return;
+      }
+      setDeleteTarget(msg);
       return;
     }
     toast.message("Bientôt disponible");
   };
 
   const handleSend = async () => {
+    if (editingMessage) {
+      void handleSaveEdit();
+      return;
+    }
     if (!conversationId || !draft.trim() || composerLocked) return;
     setSending(true);
     setEmojiOpen(false);
@@ -1059,15 +1267,19 @@ export function ChatThread({
           <form
             className={cn(
               "overflow-hidden rounded-[24px]",
-              composerLocked && "opacity-55",
+              composerLocked && !editingMessage && "opacity-55",
             )}
             style={{ backgroundColor: "#2a3942" }}
             onSubmit={(e) => {
               e.preventDefault();
+              if (editingMessage) {
+                void handleSaveEdit();
+                return;
+              }
               void handleSend();
             }}
           >
-            {replyTo ? (
+            {replyTo && !editingMessage ? (
               <div
                 className="flex items-stretch gap-2 border-b px-3 pt-2.5 pb-2"
                 style={{ borderColor: "rgba(134,150,160,0.25)" }}
@@ -1103,20 +1315,51 @@ export function ChatThread({
               </div>
             ) : null}
 
+            {editingMessage ? (
+              <div
+                className="flex items-stretch gap-2 border-b px-3 pt-2.5 pb-2"
+                style={{ borderColor: "rgba(134,150,160,0.25)" }}
+              >
+                <div
+                  className="min-w-0 flex-1 overflow-hidden rounded-md border-l-4 px-2.5 py-1.5"
+                  style={{
+                    backgroundColor: "rgba(0,0,0,0.2)",
+                    borderLeftColor: "#53bdeb",
+                  }}
+                >
+                  <p className="truncate text-[13px] font-medium" style={{ color: "#53bdeb" }}>
+                    Modifier le message
+                  </p>
+                  <p className="truncate text-[13px]" style={{ color: WA.muted }}>
+                    {messagePreview(editingMessage)}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={cancelEdit}
+                  className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-full hover:bg-white/5"
+                  style={{ color: WA.icon }}
+                  aria-label="Annuler la modification"
+                >
+                  <X className="size-5" />
+                </button>
+              </div>
+            ) : null}
+
             <div
               className={cn(
                 "flex min-h-[52px] items-end gap-1 py-1 pl-1.5 pr-1.5",
-                composerLocked && "pointer-events-none",
+                composerLocked && !editingMessage && "pointer-events-none",
               )}
             >
               <button
                 type="button"
                 onClick={() => {
-                  if (composerLocked) return;
+                  if (composerLocked || editingMessage) return;
                   setAttachOpen((v) => !v);
                   setEmojiOpen(false);
                 }}
-                disabled={composerLocked}
+                disabled={composerLocked || Boolean(editingMessage)}
                 className="mb-0.5 flex size-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/5 disabled:opacity-40"
                 style={{ color: attachOpen ? WA.green : "#aebac1" }}
                 aria-label="Joindre"
@@ -1128,11 +1371,11 @@ export function ChatThread({
               <button
                 type="button"
                 onClick={() => {
-                  if (composerLocked) return;
+                  if (composerLocked && !editingMessage) return;
                   setEmojiOpen((v) => !v);
                   setAttachOpen(false);
                 }}
-                disabled={composerLocked}
+                disabled={composerLocked && !editingMessage}
                 className="mb-0.5 flex size-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/5 disabled:opacity-40"
                 style={{ color: emojiOpen ? WA.green : "#aebac1" }}
                 aria-label="Emoji"
@@ -1146,7 +1389,12 @@ export function ChatThread({
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
-                  if (composerLocked) return;
+                  if (composerLocked && !editingMessage) return;
+                  if (e.key === "Escape" && editingMessage) {
+                    e.preventDefault();
+                    cancelEdit();
+                    return;
+                  }
                   if (e.key === "Escape" && replyTo) {
                     e.preventDefault();
                     setReplyTo(null);
@@ -1154,35 +1402,49 @@ export function ChatThread({
                   }
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
+                    if (editingMessage) {
+                      void handleSaveEdit();
+                      return;
+                    }
                     void handleSend();
                   }
                 }}
                 rows={1}
-                disabled={composerLocked}
+                disabled={composerLocked && !editingMessage}
                 placeholder={
-                  composerLocked
-                    ? WINDOW_CLOSED_HINT
-                    : replyTo
-                      ? "Répondre…"
-                      : "Entrez un message"
+                  editingMessage
+                    ? "Modifier le message…"
+                    : composerLocked
+                      ? WINDOW_CLOSED_HINT
+                      : replyTo
+                        ? "Répondre…"
+                        : "Entrez un message"
                 }
                 className={cn(
                   "max-h-[120px] min-h-[40px] flex-1 resize-none bg-transparent py-[10px] pr-1",
                   "text-[15px] leading-[20px] outline-none placeholder:text-[#8696a0]",
-                  composerLocked && "cursor-not-allowed",
+                  composerLocked && !editingMessage && "cursor-not-allowed",
                 )}
-                style={{ color: composerLocked ? WA.muted : WA.text }}
+                style={{
+                  color:
+                    composerLocked && !editingMessage ? WA.muted : WA.text,
+                }}
               />
 
-              {hasDraft || sending ? (
+              {hasDraft || sending || savingEdit ? (
                 <button
                   type="submit"
-                  disabled={composerLocked || sending || !hasDraft}
+                  disabled={
+                    (composerLocked && !editingMessage) ||
+                    sending ||
+                    savingEdit ||
+                    !hasDraft
+                  }
                   className="mb-0.5 flex size-10 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/5 disabled:opacity-40"
                   style={{ color: "#aebac1" }}
-                  aria-label="Envoyer"
+                  aria-label={editingMessage ? "Enregistrer" : "Envoyer"}
                 >
-                  {sending ? (
+                  {sending || savingEdit ? (
                     <Loader2 className="size-5 animate-spin" style={{ color: WA.green }} aria-hidden />
                   ) : (
                     <SendHorizontal className="size-[22px]" strokeWidth={1.75} aria-hidden />
@@ -1210,6 +1472,7 @@ export function ChatThread({
         <MessageContextMenu
           x={menu.x}
           y={menu.y}
+          canEdit={canEditMessage(menu.message)}
           onAction={handleMenuAction}
           onClose={() => setMenu(null)}
         />
@@ -1252,6 +1515,72 @@ export function ChatThread({
           onConversationUpdate();
         }}
       />
+
+      {deleteTarget ? (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/55 p-4">
+          <div
+            className="w-full max-w-sm overflow-hidden rounded-xl shadow-2xl"
+            style={{
+              backgroundColor: WA.panel,
+              border: `1px solid ${WA.border}`,
+            }}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="wa-delete-title"
+          >
+            <div className="px-5 pt-5 pb-3">
+              <h3
+                id="wa-delete-title"
+                className="text-[17px] font-medium"
+                style={{ color: WA.text }}
+              >
+                Supprimer le message ?
+              </h3>
+              <p className="mt-2 text-[13.5px] leading-relaxed" style={{ color: WA.muted }}>
+                {deleteTarget.direction === "outbound"
+                  ? "Choisissez de le retirer seulement du CRM, ou aussi pour le contact sur WhatsApp."
+                  : "Le message sera masqué dans le CRM (suppression pour vous)."}
+              </p>
+            </div>
+            <div className="flex flex-col gap-1 px-3 pb-3">
+              {deleteTarget.direction === "outbound" &&
+              !deleteTarget.id.startsWith("local-") ? (
+                <button
+                  type="button"
+                  disabled={deleting}
+                  onClick={() => void handleConfirmDelete(true)}
+                  className="rounded-lg px-4 py-2.5 text-left text-[14.5px] font-medium transition-colors hover:bg-white/6 disabled:opacity-50"
+                  style={{ color: "#ea4335" }}
+                >
+                  {deleting ? "Suppression…" : "Supprimer pour tout le monde"}
+                </button>
+              ) : null}
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => void handleConfirmDelete(false)}
+                className="rounded-lg px-4 py-2.5 text-left text-[14.5px] font-medium transition-colors hover:bg-white/6 disabled:opacity-50"
+                style={{ color: "#ea4335" }}
+              >
+                {deleting
+                  ? "Suppression…"
+                  : deleteTarget.direction === "outbound"
+                    ? "Supprimer pour moi"
+                    : "Supprimer"}
+              </button>
+              <button
+                type="button"
+                disabled={deleting}
+                onClick={() => setDeleteTarget(null)}
+                className="rounded-lg px-4 py-2.5 text-left text-[14.5px] transition-colors hover:bg-white/6 disabled:opacity-50"
+                style={{ color: WA.text }}
+              >
+                Annuler
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

@@ -4,6 +4,7 @@ import {
   Copy,
   CornerUpLeft,
   Forward,
+  Pencil,
   Pin,
   Plus,
   Smile,
@@ -25,6 +26,7 @@ const REACTIONS = ["👍", "❤️", "😂", "😮", "😢", "🙏"] as const;
 export type MessageMenuAction =
   | "reply"
   | "copy"
+  | "edit"
   | "react"
   | "forward"
   | "pin"
@@ -37,14 +39,22 @@ export type MessageMenuAction =
 type Props = {
   x: number;
   y: number;
+  /** Show « Modifier » (outbound text only). */
+  canEdit?: boolean;
   onAction: (action: MessageMenuAction, reaction?: string) => void;
   onClose: () => void;
 };
 
-export function MessageContextMenu({ x, y, onAction, onClose }: Props) {
+export function MessageContextMenu({
+  x,
+  y,
+  canEdit = false,
+  onAction,
+  onClose,
+}: Props) {
   // Keep menu inside viewport
   const left = Math.min(x, typeof window !== "undefined" ? window.innerWidth - 280 : x);
-  const top = Math.min(y, typeof window !== "undefined" ? window.innerHeight - 420 : y);
+  const top = Math.min(y, typeof window !== "undefined" ? window.innerHeight - 460 : y);
 
   return (
     <>
@@ -97,6 +107,13 @@ export function MessageContextMenu({ x, y, onAction, onClose }: Props) {
 
         <MenuItem icon={<CornerUpLeft className="size-[18px]" />} label="Répondre" onClick={() => onAction("reply")} />
         <MenuItem icon={<Copy className="size-[18px]" />} label="Copier" onClick={() => onAction("copy")} />
+        {canEdit ? (
+          <MenuItem
+            icon={<Pencil className="size-[18px]" />}
+            label="Modifier"
+            onClick={() => onAction("edit")}
+          />
+        ) : null}
         <MenuItem icon={<Smile className="size-[18px]" />} label="Réagir" onClick={() => onAction("react")} />
         <MenuItem icon={<Forward className="size-[18px]" />} label="Transférer" onClick={() => onAction("forward")} />
         <MenuItem icon={<Pin className="size-[18px]" />} label="Épingler" onClick={() => onAction("pin")} />
