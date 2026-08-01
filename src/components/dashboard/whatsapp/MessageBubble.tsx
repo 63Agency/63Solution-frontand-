@@ -611,8 +611,6 @@ export function MessageBubble({
 }: Props) {
   const outbound = message.direction === "outbound";
   const time = formatChatTime(message.sentAt ?? message.createdAt);
-  const isDeleted = Boolean(message.isDeleted || message.deletedAt);
-  const isEdited = Boolean(message.editedAt) && !isDeleted;
   const isAudio = message.type === "audio";
   const isImage = message.type === "image";
   const isVideo = message.type === "video";
@@ -624,11 +622,10 @@ export function MessageBubble({
   const replyTo = message.replyTo;
   const caption = captionText(message);
   const uploading = message.uploadProgress != null && !message.uploadError;
-  const hasMediaChrome =
-    !isDeleted && (isAudio || isImage || isVideo || isDocument);
+  const hasMediaChrome = isAudio || isImage || isVideo || isDocument;
 
   const retry = onRetryUpload ? () => onRetryUpload(message) : undefined;
-  const failedOutbound = outbound && message.status === "failed" && !isDeleted;
+  const failedOutbound = outbound && message.status === "failed";
   const showSendRetry = failedOutbound && onRetrySend && !message.uploadError;
 
   return (
@@ -665,13 +662,7 @@ export function MessageBubble({
       >
         {showTail ? <BubbleTail outbound={outbound} /> : null}
 
-        {isDeleted ? (
-          <p className="py-0.5 text-[13.5px] italic" style={{ color: WA.muted }}>
-            Ce message a été supprimé
-          </p>
-        ) : null}
-
-        {!isDeleted && replyTo ? (
+        {replyTo ? (
           <button
             type="button"
             className="mb-1.5 w-full overflow-hidden rounded-[6px] border-l-4 px-2 py-1.5 text-left"
@@ -699,11 +690,11 @@ export function MessageBubble({
           </button>
         ) : null}
 
-        {!isDeleted && isAudio && (cloudUrl || mediaId) ? (
+        {isAudio && (cloudUrl || mediaId) ? (
           <AudioPlayer src={cloudUrl} mediaId={mediaId || null} outbound={outbound} />
-        ) : !isDeleted && isAudio ? (
+        ) : isAudio ? (
           <MediaUnavailableLabel />
-        ) : !isDeleted && isImage && cloudUrl ? (
+        ) : isImage && cloudUrl ? (
           <div className="mb-1">
             <CloudinaryImageMessage
               url={cloudUrl}
@@ -712,13 +703,13 @@ export function MessageBubble({
               onRetry={retry}
             />
           </div>
-        ) : !isDeleted && isImage && mediaId ? (
+        ) : isImage && mediaId ? (
           <div className="mb-1">
             <MetaImageMessage mediaId={mediaId} />
           </div>
-        ) : !isDeleted && isImage ? (
+        ) : isImage ? (
           <MediaUnavailableLabel />
-        ) : !isDeleted && isVideo && cloudUrl ? (
+        ) : isVideo && cloudUrl ? (
           <div className="mb-1">
             <VideoMessage
               url={cloudUrl}
@@ -727,9 +718,9 @@ export function MessageBubble({
               onRetry={retry}
             />
           </div>
-        ) : !isDeleted && isVideo ? (
+        ) : isVideo ? (
           <MediaUnavailableLabel />
-        ) : !isDeleted && isDocument && (cloudUrl || message.fileName || body) ? (
+        ) : isDocument && (cloudUrl || message.fileName || body) ? (
           <div className="mb-1">
             <DocumentCard
               url={cloudUrl}
@@ -744,15 +735,15 @@ export function MessageBubble({
               outbound={outbound}
             />
           </div>
-        ) : !isDeleted && isDocument ? (
+        ) : isDocument ? (
           <MediaUnavailableLabel />
-        ) : !isDeleted ? (
+        ) : (
           <p className="wrap-break-word whitespace-pre-wrap text-[14.2px] leading-[19px]">
             {renderTextWithLinks(body, highlightQuery)}
           </p>
-        ) : null}
+        )}
 
-        {!isDeleted && caption && (isImage || isVideo || isDocument) ? (
+        {caption && (isImage || isVideo || isDocument) ? (
           <p className="wrap-break-word whitespace-pre-wrap text-[14.2px] leading-[19px]">
             {renderTextWithLinks(caption, highlightQuery)}
           </p>
@@ -777,15 +768,10 @@ export function MessageBubble({
               Réessayer
             </button>
           ) : null}
-          {isEdited ? (
-            <span className="text-[11px] leading-none italic" style={{ color: WA.muted }}>
-              Modifié
-            </span>
-          ) : null}
           <span className="text-[11px] leading-none" style={{ color: WA.muted }}>
             {time}
           </span>
-          {outbound && !isDeleted ? <StatusIcon status={message.status} /> : null}
+          {outbound ? <StatusIcon status={message.status} /> : null}
         </div>
         {!hasMediaChrome ? <div className="clear-both" /> : null}
 

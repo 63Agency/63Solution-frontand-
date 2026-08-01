@@ -5,9 +5,7 @@ import type {
   BulkWhatsAppSendPayload,
   BulkWhatsAppSendResult,
   BulkWhatsAppSendResultItem,
-  DeleteWhatsAppMessageOptions,
   SendWhatsAppMessagePayload,
-  UpdateWhatsAppMessagePayload,
   WhatsAppConversation,
   WhatsAppMessage,
   WhatsAppMessagesPage,
@@ -193,25 +191,6 @@ function parseMessage(row: unknown): WhatsAppMessage | null {
           : undefined,
     sentAt: typeof r.sentAt === "string" ? r.sentAt : undefined,
     createdAt,
-    editedAt:
-      typeof r.editedAt === "string"
-        ? r.editedAt
-        : typeof r.edited_at === "string"
-          ? r.edited_at
-          : null,
-    deletedAt:
-      typeof r.deletedAt === "string"
-        ? r.deletedAt
-        : typeof r.deleted_at === "string"
-          ? r.deleted_at
-          : null,
-    isDeleted:
-      r.isDeleted === true ||
-      r.is_deleted === true ||
-      r.deleted === true ||
-      (typeof r.deletedAt === "string" && Boolean(r.deletedAt)) ||
-      (typeof r.deleted_at === "string" && Boolean(r.deleted_at)) ||
-      false,
     replyTo,
   };
 }
@@ -450,90 +429,6 @@ export async function markWhatsAppConversationRead(
   if (res.status === 404) return;
   if (!res.ok) {
     return parseBackendApiError(res, `PATCH /whatsapp/conversations/${conversationId}/read`);
-  }
-}
-
-/**
- * Modifie le texte d’un message (PATCH).
- * Endpoint attendu: PATCH /whatsapp/conversations/:id/messages/:messageId
- * Body: { "text": "..." }
- */
-export async function updateWhatsAppMessage(
-  conversationId: string,
-  messageId: string,
-  payload: UpdateWhatsAppMessagePayload,
-): Promise<WhatsAppMessage> {
-  const base = getApiBaseUrl();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL manquante.");
-
-  const text = payload.text.trim();
-  if (!text) throw new Error("Le message ne peut pas être vide.");
-
-  const cid = conversationId.trim();
-  const mid = messageId.trim();
-  if (!cid || !mid) throw new Error("Identifiants message manquants.");
-
-  const res = await fetch(
-    `${base}/whatsapp/conversations/${encodeURIComponent(cid)}/messages/${encodeURIComponent(mid)}`,
-    {
-      method: "PATCH",
-      headers: buildAuthHeaders(),
-      credentials: "include",
-      body: JSON.stringify({ text }),
-    },
-  );
-
-  if (!res.ok) {
-    return parseBackendApiError(
-      res,
-      `PATCH /whatsapp/conversations/${cid}/messages/${mid}`,
-    );
-  }
-
-  const raw = await res.json().catch(() => null);
-  const parsed = parseMessage(raw);
-  if (!parsed) throw new Error("Réponse backend invalide après modification.");
-  return parsed;
-}
-
-/**
- * Supprime un message.
- * Endpoint attendu: DELETE /whatsapp/conversations/:id/messages/:messageId?forEveryone=true|false
- * - forEveryone=false → soft-delete CRM (« pour moi »)
- * - forEveryone=true → revoke Meta + soft-delete CRM (« pour tout le monde »)
- */
-export async function deleteWhatsAppMessage(
-  conversationId: string,
-  messageId: string,
-  options: DeleteWhatsAppMessageOptions = {},
-): Promise<void> {
-  const base = getApiBaseUrl();
-  if (!base) throw new Error("NEXT_PUBLIC_API_URL manquante.");
-
-  const cid = conversationId.trim();
-  const mid = messageId.trim();
-  if (!cid || !mid) throw new Error("Identifiants message manquants.");
-
-  const params = new URLSearchParams();
-  if (options.forEveryone === true) params.set("forEveryone", "true");
-  if (options.forEveryone === false) params.set("forEveryone", "false");
-  const qs = params.toString() ? `?${params.toString()}` : "";
-
-  const res = await fetch(
-    `${base}/whatsapp/conversations/${encodeURIComponent(cid)}/messages/${encodeURIComponent(mid)}${qs}`,
-    {
-      method: "DELETE",
-      headers: buildAuthHeaders(),
-      credentials: "include",
-    },
-  );
-
-  if (res.status === 404) return;
-  if (!res.ok) {
-    return parseBackendApiError(
-      res,
-      `DELETE /whatsapp/conversations/${cid}/messages/${mid}`,
-    );
   }
 }
 

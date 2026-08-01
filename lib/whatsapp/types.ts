@@ -43,11 +43,6 @@ export type WhatsAppMessage = {
   watiMessageId?: string;
   sentAt?: string;
   createdAt: string;
-  /** ISO date when the message body was last edited (CRM / Meta). */
-  editedAt?: string | null;
-  /** Soft-deleted in CRM (or Meta revoke). */
-  deletedAt?: string | null;
-  isDeleted?: boolean;
   /** Citation affichée (réponse à un message) — UI / optimiste. */
   replyTo?: {
     id: string;
@@ -70,18 +65,6 @@ export type SendWhatsAppMessagePayload = {
   fileName?: string;
   fileSize?: number;
   mimeType?: string;
-};
-
-export type UpdateWhatsAppMessagePayload = {
-  text: string;
-};
-
-export type DeleteWhatsAppMessageOptions = {
-  /**
-   * true = supprimer aussi côté WhatsApp (Meta) pour tous.
-   * false / omit = soft-delete CRM seulement (« pour moi »).
-   */
-  forEveryone?: boolean;
 };
 
 export type WhatsAppMessagesPage = {
