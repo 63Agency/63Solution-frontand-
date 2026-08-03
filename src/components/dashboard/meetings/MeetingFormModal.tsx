@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { Loader2, Search, UserRound, X, CalendarOff } from "lucide-react";
+import {
+  Loader2,
+  Search,
+  UserPlus,
+  UserRound,
+  Users,
+  X,
+  CalendarOff,
+} from "lucide-react";
 import { toast } from "sonner";
 import { fetchLeads } from "@/lib/leads/api-leads";
 import { cleanLeadDisplayName } from "@/lib/leads/phone-extract";
@@ -24,10 +32,13 @@ import {
   MEETING_STATUS_LABELS,
   defaultRemindersConfig,
   type Meeting,
+  type MeetingMember,
   type MeetingRemindersConfig,
   type MeetingStatus,
   type BlockedDay,
 } from "@/lib/meetings/types";
+import { fetchTeamUsers } from "@/lib/settings/backend-settings";
+import type { TeamUser } from "@/lib/settings/settings-types";
 import { cn } from "@/src/lib/utils";
 
 type FormState = {
@@ -43,10 +54,29 @@ type FormState = {
   notes: string;
   manualContact: boolean;
   reminders: MeetingRemindersConfig;
+  members: MeetingMember[];
 };
 
 function pad(n: number) {
   return String(n).padStart(2, "0");
+}
+
+function teamUserDisplayName(user: TeamUser): string {
+  return `${user.prenom} ${user.nom}`.trim() || user.email;
+}
+
+function teamUserToMember(user: TeamUser): MeetingMember {
+  return {
+    userId: user.id,
+    name: teamUserDisplayName(user),
+    phone: user.telephone.trim() || null,
+    email: user.email.trim() || null,
+  };
+}
+
+function memberKey(member: MeetingMember): string {
+  if (member.userId) return `u:${member.userId}`;
+  return `n:${member.name.toLowerCase()}|${(member.email ?? "").toLowerCase()}|${member.phone ?? ""}`;
 }
 
 const emptyForm = (prefillDate?: Date | null): FormState => {
@@ -73,6 +103,7 @@ const emptyForm = (prefillDate?: Date | null): FormState => {
     notes: "",
     manualContact: false,
     reminders: defaultRemindersConfig(true, true),
+    members: [],
   };
 };
 
@@ -94,6 +125,7 @@ function meetingToForm(meeting: Meeting): FormState {
       Boolean(meeting.contactPhone?.trim()),
       Boolean(meeting.contactEmail?.trim()),
     ),
+    members: meeting.members ?? [],
   };
 }
 
@@ -125,11 +157,19 @@ export function MeetingFormModal({
   const [leadPickerOpen, setLeadPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
 
+  const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
+  const [teamLoading, setTeamLoading] = useState(false);
+  const [memberQuery, setMemberQuery] = useState("");
+  const [memberPickerOpen, setMemberPickerOpen] = useState(false);
+  const memberPickerRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     if (!open) return;
     setForm(meeting ? meetingToForm(meeting) : emptyForm(prefillDate));
-    setLeadQuery("");
+    setLeadQuery(meeting ? meeting.contactName : "");
     setLeadPickerOpen(false);
+    setMemberQuery("");
+    setMemberPickerOpen(false);
   }, [open, meeting, prefillDate]);
 
   useEffect(() => {
@@ -155,6 +195,25 @@ export function MeetingFormModal({
   }, [open, form.manualContact]);
 
   useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+    setTeamLoading(true);
+    void fetchTeamUsers()
+      .then((users) => {
+        if (!cancelled) setTeamUsers(users);
+      })
+      .catch(() => {
+        if (!cancelled) setTeamUsers([]);
+      })
+      .finally(() => {
+        if (!cancelled) setTeamLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
+
+  useEffect(() => {
     if (!leadPickerOpen) return;
     const onDown = (e: MouseEvent) => {
       if (!pickerRef.current?.contains(e.target as Node)) {
@@ -164,6 +223,17 @@ export function MeetingFormModal({
     document.addEventListener("mousedown", onDown);
     return () => document.removeEventListener("mousedown", onDown);
   }, [leadPickerOpen]);
+
+  useEffect(() => {
+    if (!memberPickerOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!memberPickerRef.current?.contains(e.target as Node)) {
+        setMemberPickerOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [memberPickerOpen]);
 
   const filteredLeads = useMemo(() => {
     const q = leadQuery.trim().toLowerCase();
@@ -176,6 +246,27 @@ export function MeetingFormModal({
       })
       .slice(0, 30);
   }, [leads, leadQuery]);
+
+  const selectedMemberKeys = useMemo(
+    () => new Set(form.members.map(memberKey)),
+    [form.members],
+  );
+
+  const filteredTeamUsers = useMemo(() => {
+    const q = memberQuery.trim().toLowerCase();
+    const available = teamUsers.filter(
+      (u) => !selectedMemberKeys.has(`u:${u.id}`),
+    );
+    if (!q) return available.slice(0, 40);
+    return available
+      .filter((u) => {
+        const name = teamUserDisplayName(u).toLowerCase();
+        const email = u.email.toLowerCase();
+        const phone = u.telephone.toLowerCase();
+        return name.includes(q) || email.includes(q) || phone.includes(q);
+      })
+      .slice(0, 40);
+  }, [teamUsers, memberQuery, selectedMemberKeys]);
 
   const dateIsBlocked =
     Boolean(form.date.trim()) &&
@@ -194,15 +285,41 @@ export function MeetingFormModal({
   };
 
   const selectLead = (lead: ClickUpLead) => {
+    const name = cleanLeadDisplayName(lead.name) || lead.name;
     setForm((prev) => ({
       ...prev,
       leadId: lead.id,
-      contactName: cleanLeadDisplayName(lead.name) || lead.name,
+      contactName: name,
       contactPhone: lead.phone ?? "",
       manualContact: false,
     }));
-    setLeadQuery(cleanLeadDisplayName(lead.name) || lead.name);
+    setLeadQuery(name);
     setLeadPickerOpen(false);
+  };
+
+  const addMember = (user: TeamUser) => {
+    const next = teamUserToMember(user);
+    if (!next.phone && !next.email) {
+      toast.error(
+        "Ce membre n’a ni téléphone ni email — impossible de l’ajouter.",
+      );
+      return;
+    }
+    setForm((prev) => {
+      if (prev.members.some((m) => memberKey(m) === memberKey(next))) {
+        return prev;
+      }
+      return { ...prev, members: [...prev.members, next] };
+    });
+    setMemberQuery("");
+    setMemberPickerOpen(false);
+  };
+
+  const removeMember = (key: string) => {
+    setForm((prev) => ({
+      ...prev,
+      members: prev.members.filter((m) => memberKey(m) !== key),
+    }));
   };
 
   const handleSubmit = async (e: FormEvent) => {
@@ -234,7 +351,15 @@ export function MeetingFormModal({
       return;
     }
     if (!contactName) {
-      toast.error("Le nom du contact est requis.");
+      toast.error(
+        form.manualContact
+          ? "Le nom du contact est requis."
+          : "Sélectionnez un client dans les leads.",
+      );
+      return;
+    }
+    if (!form.manualContact && !form.leadId.trim()) {
+      toast.error("Choisissez un client depuis la liste des leads.");
       return;
     }
     if (contactPhone && !isValidInternationalPhone(contactPhone)) {
@@ -248,6 +373,20 @@ export function MeetingFormModal({
       return;
     }
 
+    for (const m of form.members) {
+      if (m.phone && !isValidInternationalPhone(m.phone)) {
+        toast.error(`Téléphone invalide pour ${m.name}.`);
+        return;
+      }
+    }
+
+    const membersPayload: MeetingMember[] = form.members.map((m) => ({
+      userId: m.userId ?? null,
+      name: m.name.trim(),
+      phone: m.phone?.trim() || null,
+      email: m.email?.trim() || null,
+    }));
+
     setSaving(true);
     try {
       const payload = {
@@ -256,6 +395,7 @@ export function MeetingFormModal({
         contactName,
         contactPhone: contactPhone || undefined,
         contactEmail: contactEmail || undefined,
+        members: membersPayload,
         status: form.status,
         notes: form.notes.trim() || undefined,
         leadId: form.manualContact ? undefined : form.leadId || undefined,
@@ -270,13 +410,14 @@ export function MeetingFormModal({
               contactEmail: contactEmail || null,
               notes: form.notes.trim() || null,
               leadId: form.manualContact ? null : form.leadId || null,
+              members: membersPayload,
             })
           : await createMeeting(payload);
 
-      // Duration is UI/calendar-only until the API persists it.
       onSaved({
         ...saved,
         durationMinutes: form.durationMinutes,
+        members: saved.members?.length ? saved.members : membersPayload,
       });
       toast.success(isEdit ? "Rendez-vous mis à jour." : "Rendez-vous créé.");
       onClose();
@@ -298,7 +439,10 @@ export function MeetingFormModal({
         aria-labelledby="meeting-form-title"
       >
         <div className="sticky top-0 z-10 flex items-center justify-between border-b border-zinc-800 bg-zinc-900 px-5 py-4">
-          <h3 id="meeting-form-title" className="text-lg font-semibold text-white">
+          <h3
+            id="meeting-form-title"
+            className="text-lg font-semibold text-white"
+          >
             {isEdit ? "Modifier le rendez-vous" : "Nouveau rendez-vous"}
           </h3>
           <button
@@ -311,7 +455,10 @@ export function MeetingFormModal({
           </button>
         </div>
 
-        <form onSubmit={(e) => void handleSubmit(e)} className="space-y-4 px-5 py-4">
+        <form
+          onSubmit={(e) => void handleSubmit(e)}
+          className="space-y-4 px-5 py-4"
+        >
           <label className="block">
             <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
               Titre *
@@ -392,19 +539,26 @@ export function MeetingFormModal({
           </div>
 
           <div className="flex items-center justify-between gap-2">
-            <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-              Contact *
-            </span>
+            <div>
+              <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Contact *
+              </span>
+              {!form.manualContact ? (
+                <p className="mt-0.5 text-[11px] text-zinc-500">
+                  Recherche dans les leads (pas la page Clients).
+                </p>
+              ) : null}
+            </div>
             <button
               type="button"
               onClick={() =>
                 setForm((prev) => ({
                   ...prev,
                   manualContact: !prev.manualContact,
-                  leadId: "",
+                  leadId: prev.manualContact ? prev.leadId : "",
                 }))
               }
-              className="text-xs text-emerald-400 hover:text-emerald-300"
+              className="shrink-0 text-xs text-emerald-400 hover:text-emerald-300"
             >
               {form.manualContact ? "Choisir un lead" : "Saisir manuellement"}
             </button>
@@ -415,23 +569,34 @@ export function MeetingFormModal({
               <div className="relative">
                 <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500" />
                 <input
-                  value={leadQuery || form.contactName}
+                  value={leadQuery}
                   onChange={(e) => {
-                    setLeadQuery(e.target.value);
-                    setField("contactName", e.target.value);
+                    const q = e.target.value;
+                    setLeadQuery(q);
                     setLeadPickerOpen(true);
+                    setForm((prev) => ({
+                      ...prev,
+                      contactName: q,
+                      leadId: "",
+                    }));
                   }}
                   onFocus={() => setLeadPickerOpen(true)}
-                  placeholder="Rechercher un lead…"
+                  placeholder="Rechercher un client dans les leads…"
+                  autoComplete="off"
                   className="w-full rounded-xl border border-zinc-700 bg-zinc-950/80 py-2.5 pl-10 pr-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30"
                 />
               </div>
+              {form.leadId ? (
+                <p className="mt-1.5 text-[11px] text-emerald-400/90">
+                  Lead sélectionné · {form.contactName}
+                </p>
+              ) : null}
               {leadPickerOpen ? (
                 <div className="app-scroll absolute left-0 right-0 z-20 mt-1 max-h-48 overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950 p-1 shadow-xl">
                   {leadsLoading ? (
                     <div className="flex items-center justify-center gap-2 py-4 text-xs text-zinc-500">
                       <Loader2 className="size-4 animate-spin" />
-                      Chargement…
+                      Chargement des leads…
                     </div>
                   ) : filteredLeads.length === 0 ? (
                     <p className="px-3 py-3 text-xs text-zinc-500">
@@ -440,12 +605,16 @@ export function MeetingFormModal({
                   ) : (
                     filteredLeads.map((lead) => {
                       const name = cleanLeadDisplayName(lead.name) || lead.name;
+                      const selected = form.leadId === lead.id;
                       return (
                         <button
                           key={lead.id}
                           type="button"
                           onClick={() => selectLead(lead)}
-                          className="flex w-full items-start gap-2 rounded-lg px-3 py-2 text-left hover:bg-zinc-800"
+                          className={cn(
+                            "flex w-full items-start gap-2 rounded-lg px-3 py-2 text-left hover:bg-zinc-800",
+                            selected && "bg-emerald-500/10",
+                          )}
                         >
                           <UserRound className="mt-0.5 size-4 shrink-0 text-zinc-500" />
                           <span className="min-w-0">
@@ -496,6 +665,112 @@ export function MeetingFormModal({
                 className="mt-1.5 w-full rounded-xl border border-zinc-700 bg-zinc-950/80 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30"
               />
             </label>
+          </div>
+
+          <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
+            <div className="flex items-center gap-2">
+              <Users className="size-4 text-emerald-400" />
+              <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+                Membres de l&apos;équipe
+              </span>
+            </div>
+            <p className="text-[11px] leading-relaxed text-zinc-500">
+              Ajoutez owner, assistant ou d&apos;autres membres (équipe /
+              Paramètres). Ils recevront aussi les rappels WhatsApp et email.
+            </p>
+
+            {form.members.length > 0 ? (
+              <ul className="space-y-1.5">
+                {form.members.map((m) => {
+                  const key = memberKey(m);
+                  return (
+                    <li
+                      key={key}
+                      className="flex items-start justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-zinc-100">
+                          {m.name}
+                        </p>
+                        <p className="truncate font-mono text-[11px] text-zinc-500">
+                          {[m.phone, m.email].filter(Boolean).join(" · ") ||
+                            "Sans contact"}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeMember(key)}
+                        className="flex size-7 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-red-300"
+                        aria-label={`Retirer ${m.name}`}
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+
+            <div ref={memberPickerRef} className="relative">
+              <div className="relative">
+                <UserPlus className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500" />
+                <input
+                  value={memberQuery}
+                  onChange={(e) => {
+                    setMemberQuery(e.target.value);
+                    setMemberPickerOpen(true);
+                  }}
+                  onFocus={() => setMemberPickerOpen(true)}
+                  placeholder="Rechercher un membre de l’équipe…"
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-950/80 py-2.5 pl-10 pr-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30"
+                />
+              </div>
+              {memberPickerOpen ? (
+                <div className="app-scroll absolute left-0 right-0 z-20 mt-1 max-h-52 overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950 p-1 shadow-xl">
+                  {teamLoading ? (
+                    <div className="flex items-center justify-center gap-2 py-4 text-xs text-zinc-500">
+                      <Loader2 className="size-4 animate-spin" />
+                      Chargement de l’équipe…
+                    </div>
+                  ) : filteredTeamUsers.length === 0 ? (
+                    <p className="px-3 py-3 text-xs text-zinc-500">
+                      {teamUsers.length === 0
+                        ? "Aucun membre équipe trouvé (GET /users)."
+                        : "Aucun résultat — ou déjà ajouté."}
+                    </p>
+                  ) : (
+                    filteredTeamUsers.map((user) => {
+                      const name = teamUserDisplayName(user);
+                      return (
+                        <button
+                          key={user.id}
+                          type="button"
+                          onClick={() => addMember(user)}
+                          className="flex w-full items-start gap-2 rounded-lg px-3 py-2 text-left hover:bg-zinc-800"
+                        >
+                          <UserRound className="mt-0.5 size-4 shrink-0 text-emerald-500/80" />
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm text-zinc-100">
+                              {name}
+                            </span>
+                            <span className="block truncate text-[11px] text-zinc-500">
+                              {[user.telephone || null, user.email || null]
+                                .filter(Boolean)
+                                .join(" · ") || "Sans téléphone / email"}
+                            </span>
+                            <span className="mt-0.5 block text-[10px] uppercase tracking-wider text-zinc-600">
+                              {user.role === "admin"
+                                ? "Admin"
+                                : "Admin WhatsApp"}
+                            </span>
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              ) : null}
+            </div>
           </div>
 
           <label className="block">

@@ -192,6 +192,27 @@ export function MeetingDetailPanel({
               </dt>
               <dd className="mt-1 text-zinc-300">{meeting.contactEmail || "—"}</dd>
             </div>
+            {meeting.members && meeting.members.length > 0 ? (
+              <div>
+                <dt className="text-[11px] uppercase tracking-wider text-zinc-500">
+                  Membres de l&apos;équipe
+                </dt>
+                <dd className="mt-2 space-y-2">
+                  {meeting.members.map((m, idx) => (
+                    <div
+                      key={`${m.userId ?? m.name}-${idx}`}
+                      className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2"
+                    >
+                      <p className="text-sm text-zinc-100">{m.name}</p>
+                      <p className="mt-0.5 font-mono text-[11px] text-zinc-500">
+                        {[m.phone, m.email].filter(Boolean).join(" · ") ||
+                          "Sans contact"}
+                      </p>
+                    </div>
+                  ))}
+                </dd>
+              </div>
+            ) : null}
             {meeting.notes ? (
               <div>
                 <dt className="text-[11px] uppercase tracking-wider text-zinc-500">

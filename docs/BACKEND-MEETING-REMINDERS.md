@@ -73,6 +73,7 @@ Les flags legacy `reminderWhatsappSent` / `reminderEmailSent` restent supportés
 3. Worker périodique (cron / queue) : exécuter les jobs dus.
 4. WhatsApp : template Meta approuvé (ou message session si fenêtre ouverte) avec titre RDV, date/heure, lien Meet.
 5. Email : SMTP / provider existant, même contenu.
+5bis. **Fan-out membres équipe** : si le meeting a `members[]`, envoyer aussi WhatsApp/email à chaque membre (voir `docs/BACKEND-MEETING-MEMBERS.md`). Destinataires = contact + members (dédupliqués).
 6. Idempotence : unique `(meetingId, channel, offset)` — ne pas renvoyer si déjà `sent`.
 7. Si statut passe à `cancelled` / `done` / `no_show` : annuler tous les jobs `pending`.
 

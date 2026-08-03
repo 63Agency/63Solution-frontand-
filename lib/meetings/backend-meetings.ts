@@ -6,6 +6,7 @@ import type {
   ListBlockedDaysQuery,
   ListMeetingsQuery,
   Meeting,
+  MeetingMember,
   MeetingReminderChannelConfig,
   MeetingReminderChannelStatus,
   MeetingReminderDeliveryStatus,
@@ -148,6 +149,44 @@ function parseRemindersStatus(
   return emptyRemindersStatus();
 }
 
+function parseMeetingMember(row: unknown): MeetingMember | null {
+  if (!row || typeof row !== "object") return null;
+  const r = row as Record<string, unknown>;
+  const name = String(
+    r.name ?? r.contactName ?? r.fullName ?? `${r.prenom ?? ""} ${r.nom ?? ""}`,
+  ).trim();
+  if (!name) return null;
+  const phoneRaw = r.phone ?? r.telephone ?? r.contactPhone;
+  const emailRaw = r.email ?? r.contactEmail;
+  const userIdRaw = r.userId ?? r.user_id;
+  return {
+    userId:
+      userIdRaw == null || userIdRaw === ""
+        ? null
+        : String(userIdRaw),
+    name,
+    phone:
+      phoneRaw == null || phoneRaw === ""
+        ? null
+        : String(phoneRaw).trim(),
+    email:
+      emailRaw == null || emailRaw === ""
+        ? null
+        : String(emailRaw).trim(),
+  };
+}
+
+function parseMeetingMembers(raw: unknown): MeetingMember[] {
+  const list = Array.isArray(raw)
+    ? raw
+    : raw && typeof raw === "object" && Array.isArray((raw as { items?: unknown[] }).items)
+      ? (raw as { items: unknown[] }).items
+      : [];
+  return list
+    .map((row) => parseMeetingMember(row))
+    .filter((m): m is MeetingMember => m != null);
+}
+
 function parseMeeting(row: unknown): Meeting | null {
   if (!row || typeof row !== "object") return null;
   const r = row as Record<string, unknown>;
@@ -189,6 +228,10 @@ function parseMeeting(row: unknown): Meeting | null {
   );
   const reminderEmailSent = Boolean(r.reminderEmailSent ?? r.reminder_email_sent);
 
+  const members = parseMeetingMembers(
+    r.members ?? r.attendees ?? r.teamMembers ?? r.team_members,
+  );
+
   return {
     id,
     leadId:
@@ -200,6 +243,7 @@ function parseMeeting(row: unknown): Meeting | null {
     contactName,
     contactPhone,
     contactEmail,
+    members,
     status,
     reminderWhatsappSent,
     reminderEmailSent,

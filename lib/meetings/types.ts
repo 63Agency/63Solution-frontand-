@@ -74,6 +74,11 @@ export type Meeting = {
   contactName: string;
   contactPhone: string | null;
   contactEmail: string | null;
+  /**
+   * Membres internes de l’équipe (owner, assistant, autres) —
+   * distincts du contact client/lead. Reçoivent aussi les rappels.
+   */
+  members: MeetingMember[];
   status: MeetingStatus;
   /** Agrégat legacy — true si au moins un rappel WhatsApp a été envoyé. */
   reminderWhatsappSent: boolean;
@@ -90,6 +95,15 @@ export type Meeting = {
   durationMinutes: number;
   createdAt: string;
   updatedAt: string;
+};
+
+/** Membre équipe ajouté au RDV (hors contact client). */
+export type MeetingMember = {
+  /** Id utilisateur Nest (`GET /users`) si choisi depuis l’équipe. */
+  userId?: string | null;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
 };
 
 export type MeetingStats = {
@@ -109,6 +123,8 @@ export type CreateMeetingPayload = {
   contactName: string;
   contactPhone?: string;
   contactEmail?: string;
+  /** Membres équipe (admin + admin_whatsapp) — rappels fan-out. */
+  members?: MeetingMember[];
   status?: MeetingStatus;
   notes?: string;
   reminders?: MeetingRemindersConfig;
@@ -121,6 +137,7 @@ export type UpdateMeetingPayload = {
   contactName?: string;
   contactPhone?: string | null;
   contactEmail?: string | null;
+  members?: MeetingMember[];
   status?: MeetingStatus;
   notes?: string | null;
   reminders?: MeetingRemindersConfig;
