@@ -195,12 +195,12 @@ export function MeetingDetailPanel({
             {meeting.members && meeting.members.length > 0 ? (
               <div>
                 <dt className="text-[11px] uppercase tracking-wider text-zinc-500">
-                  Membres de l&apos;équipe
+                  Membres de l&apos;équipe client
                 </dt>
                 <dd className="mt-2 space-y-2">
                   {meeting.members.map((m, idx) => (
                     <div
-                      key={`${m.userId ?? m.name}-${idx}`}
+                      key={`${m.leadId ?? m.userId ?? m.name}-${idx}`}
                       className="rounded-lg border border-zinc-800 bg-zinc-900/60 px-3 py-2"
                     >
                       <p className="text-sm text-zinc-100">{m.name}</p>

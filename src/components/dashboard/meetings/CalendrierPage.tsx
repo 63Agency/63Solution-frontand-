@@ -52,6 +52,7 @@ import { BlockedDaysPanel } from "./BlockedDaysPanel";
 import { CalendarDayHeader, CalendarShowMore } from "./CalendarDayHeader";
 import { MeetingDetailPanel } from "./MeetingDetailPanel";
 import { MeetingFormModal } from "./MeetingFormModal";
+import { MeetingStatusBadge } from "./MeetingBadges";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 
 const locales = { fr };
@@ -871,7 +872,7 @@ const MeetingsFilteredTable = forwardRef<
                     <td className="py-3 pr-4">{m.contactName}</td>
                     <td className="py-3 pr-4">{m.title}</td>
                     <td className="py-3 pr-4">
-                      {MEETING_STATUS_LABELS[m.status]}
+                      <MeetingStatusBadge status={m.status} />
                     </td>
                     <td className="py-3 pl-4 text-right">
                       <div className="inline-flex items-center gap-1">

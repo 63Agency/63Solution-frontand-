@@ -75,8 +75,9 @@ export type Meeting = {
   contactPhone: string | null;
   contactEmail: string | null;
   /**
-   * Membres internes de l’équipe (owner, assistant, autres) —
-   * distincts du contact client/lead. Reçoivent aussi les rappels.
+   * Autres personnes du côté client (owner, assistant…) qui participent au RDV.
+   * Choisies depuis les leads — pas le staff interne 63Agency.
+   * Reçoivent aussi les rappels WhatsApp / email.
    */
   members: MeetingMember[];
   status: MeetingStatus;
@@ -97,9 +98,11 @@ export type Meeting = {
   updatedAt: string;
 };
 
-/** Membre équipe ajouté au RDV (hors contact client). */
+/** Autre participant côté client (hors contact principal). */
 export type MeetingMember = {
-  /** Id utilisateur Nest (`GET /users`) si choisi depuis l’équipe. */
+  /** Id lead ClickUp si choisi depuis la liste des leads. */
+  leadId?: string | null;
+  /** @deprecated Ancien champ staff interne — ignoré côté front. */
   userId?: string | null;
   name: string;
   phone?: string | null;
@@ -123,7 +126,7 @@ export type CreateMeetingPayload = {
   contactName: string;
   contactPhone?: string;
   contactEmail?: string;
-  /** Membres équipe (admin + admin_whatsapp) — rappels fan-out. */
+  /** Autres participants côté client (leads) — rappels fan-out. */
   members?: MeetingMember[];
   status?: MeetingStatus;
   notes?: string;
@@ -161,16 +164,16 @@ export const MEETING_STATUS_COLORS: Record<
   { bg: string; text: string; border: string; calendar: string }
 > = {
   scheduled: {
-    bg: "bg-emerald-500/15",
-    text: "text-emerald-300",
-    border: "border-emerald-500/30",
-    calendar: "#10b981",
+    bg: "bg-sky-500/15",
+    text: "text-sky-300",
+    border: "border-sky-500/30",
+    calendar: "#0ea5e9",
   },
   done: {
-    bg: "bg-zinc-500/20",
-    text: "text-zinc-300",
-    border: "border-zinc-500/30",
-    calendar: "#71717a",
+    bg: "bg-emerald-500/20",
+    text: "text-emerald-300",
+    border: "border-emerald-500/40",
+    calendar: "#10b981",
   },
   cancelled: {
     bg: "bg-red-500/15",

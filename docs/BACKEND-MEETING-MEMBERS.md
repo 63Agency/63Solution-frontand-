@@ -1,17 +1,19 @@
-# Meeting members (équipe) — contrat backend
+# Meeting members — équipe **côté client** (leads)
 
-Le frontend calendrier permet d’ajouter des **membres internes** (owner, assistant, autres) en plus du **contact client/lead**.
+Le frontend ajoute des **participants côté client** (owner, assistant, autres personnes du client) en plus du contact principal.
+
+Ce ne sont **pas** les users internes 63Agency (`GET /users` / Paramètres).
 
 Accessible aux rôles **`admin`** et **`admin_whatsapp`**.
 
-## Différence contact vs membres
+## Différence contact vs members
 
-| Champ | Source | Qui |
-|-------|--------|-----|
-| `contactName` / `contactPhone` / `contactEmail` | Lead ClickUp ou saisie manuelle | Client / prospect |
-| `members[]` | `GET /users` (équipe Paramètres) | Staff interne |
+| Champ | Source UI | Qui |
+|-------|-----------|-----|
+| `contactName` / `contactPhone` / `contactEmail` + `leadId` | Recherche **leads** (ou saisie manuelle) | Contact principal du RDV |
+| `members[]` | Recherche **autres leads** | Autres personnes côté client qui participent |
 
-Les rappels WhatsApp / email doivent partir au **contact + chaque membre** qui a un téléphone / email.
+Les deux listes viennent de `GET /leads` — **pas** de la page Clients (`/clients`), **pas** de `/users`.
 
 ---
 
@@ -23,22 +25,22 @@ Les rappels WhatsApp / email doivent partir au **contact + chaque membre** qui a
 {
   "title": "Appel découverte",
   "meetingDate": "2026-08-03T10:00:00.000Z",
-  "contactName": "Karim Client",
+  "leadId": "lead-principal-id",
+  "contactName": "Karim Directeur",
   "contactPhone": "+212612345678",
   "contactEmail": "karim@client.com",
-  "leadId": "optional-lead-id",
   "members": [
     {
-      "userId": "uuid-user-1",
-      "name": "Sara Owner",
+      "leadId": "lead-assistant-id",
+      "name": "Sara Assistante",
       "phone": "+212600000001",
-      "email": "sara@63agency.com"
+      "email": "sara@client.com"
     },
     {
-      "userId": "uuid-user-2",
-      "name": "Youssef Assistant",
+      "leadId": "lead-owner-id",
+      "name": "Youssef Owner",
       "phone": "+212600000002",
-      "email": "youssef@63agency.com"
+      "email": null
     }
   ],
   "reminders": {
@@ -51,49 +53,45 @@ Les rappels WhatsApp / email doivent partir au **contact + chaque membre** qui a
 ### Règles `members`
 
 - Tableau optionnel (défaut `[]`).
-- Sur `PATCH` : **remplacer** la liste entière par celle envoyée (pas de merge partiel).
-- `userId` optionnel mais recommandé (FK vers `users`).
-- Snapshot `name` / `phone` / `email` au moment du RDV (si le profil user change plus tard, le RDV garde ces valeurs).
-- Ignorer un membre sans `phone` **et** sans `email` pour l’envoi, ou rejeter `400`.
+- Sur `PATCH` : **remplacer** toute la liste.
+- `leadId` optionnel mais recommandé (référence ClickUp / table leads).
+- Snapshot `name` / `phone` / `email` au moment du RDV.
+- Un membre sans phone **et** sans email → ignorer pour l’envoi (ou `400`).
 
 ---
 
 ## Réponse Meeting
 
-Chaque meeting (GET list / create / update) doit inclure :
-
 ```json
 {
   "id": "uuid",
-  "contactName": "Karim Client",
+  "leadId": "lead-principal-id",
+  "contactName": "Karim Directeur",
   "contactPhone": "+2126…",
   "contactEmail": "…",
   "members": [
     {
-      "userId": "uuid-user-1",
-      "name": "Sara Owner",
+      "leadId": "lead-assistant-id",
+      "name": "Sara Assistante",
       "phone": "+212600000001",
-      "email": "sara@63agency.com"
+      "email": "sara@client.com"
     }
   ]
 }
 ```
 
-Aliases acceptés côté front parse : `members` | `attendees` | `teamMembers`.
+Aliases parse front : `members` | `attendees` | `teamMembers`.
 
 ---
 
 ## Rappels — fan-out
 
-Pour chaque job rappel (offset × canal) :
+Pour chaque rappel (auto + `POST .../send-reminder`) :
 
-1. Destinataires = contact principal **+** tous les `members[]`.
-2. WhatsApp : envoyer à chaque numéro non vide (`contactPhone` + `members[].phone`).
-3. Email : envoyer à chaque email non vide (`contactEmail` + `members[].email`).
-4. Dédupliquer les numéros / emails identiques.
-5. `POST /meetings/:id/send-reminder` (manuel) : même fan-out.
-
-Idempotence suggérée : unique `(meetingId, channel, offset, recipient)` ou logger les destinataires dans `meeting_reminders`.
+1. Destinataires = **contact principal** + **chaque membre**.
+2. WhatsApp → chaque `phone` non vide.
+3. Email → chaque `email` non vide.
+4. Dédupliquer numéros / emails.
 
 ---
 
@@ -103,7 +101,7 @@ Idempotence suggérée : unique `(meetingId, channel, offset, recipient)` ou log
 create table if not exists public.meeting_members (
   id uuid primary key default gen_random_uuid(),
   meeting_id uuid not null references public.meetings(id) on delete cascade,
-  user_id uuid null references public.users(id) on delete set null,
+  lead_id text null,
   name text not null,
   phone text null,
   email text null,
@@ -114,27 +112,25 @@ create index if not exists meeting_members_meeting_id_idx
   on public.meeting_members (meeting_id);
 ```
 
+> Ne pas lier à `users` (staff). `lead_id` = id lead ClickUp / leads Nest.
+
 ---
 
-## Auth / rôles
+## Auth
 
 | Action | admin | admin_whatsapp |
 |--------|-------|----------------|
-| Créer / éditer RDV avec `members` | oui | oui |
-| Envoyer rappel manuel (fan-out) | oui | oui |
-| `GET /users` (liste équipe pour le picker) | oui | **oui (lecture seule)** |
+| Créer / éditer RDV + `members` | oui | oui |
+| Envoyer rappel (fan-out) | oui | oui |
+| Lister leads pour le picker | oui | oui (déjà le cas) |
 
-> Important : le front charge l’équipe via `GET /users`.  
-> `admin_whatsapp` doit pouvoir **lister** les users (name, phone, email) même s’il ne peut pas créer/supprimer des comptes.
-
-Champs minimaux pour le picker : `id`, `prenom`, `nom`, `email`, `telephone`, `role`.
+**Pas besoin** d’ouvrir `GET /users` à `admin_whatsapp` pour cette feature.
 
 ---
 
 ## Checklist Nest
 
-- [ ] Accepter `members` sur POST / PATCH `/meetings`
+- [ ] Accepter `members` avec `leadId` / `name` / `phone` / `email` sur POST / PATCH
 - [ ] Persister + retourner `members` sur GET
-- [ ] Rappels auto + `send-reminder` → contact + tous les membres
-- [ ] Autoriser `GET /users` en lecture pour `admin_whatsapp`
-- [ ] Migration `meeting_members`
+- [ ] Rappels → contact + tous les members
+- [ ] Migration `meeting_members` (`lead_id`, pas `user_id`)

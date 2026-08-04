@@ -37,8 +37,6 @@ import {
   type MeetingStatus,
   type BlockedDay,
 } from "@/lib/meetings/types";
-import { fetchTeamUsers } from "@/lib/settings/backend-settings";
-import type { TeamUser } from "@/lib/settings/settings-types";
 import { cn } from "@/src/lib/utils";
 
 type FormState = {
@@ -61,20 +59,18 @@ function pad(n: number) {
   return String(n).padStart(2, "0");
 }
 
-function teamUserDisplayName(user: TeamUser): string {
-  return `${user.prenom} ${user.nom}`.trim() || user.email;
-}
-
-function teamUserToMember(user: TeamUser): MeetingMember {
+function leadToMember(lead: ClickUpLead): MeetingMember {
+  const name = cleanLeadDisplayName(lead.name) || lead.name;
   return {
-    userId: user.id,
-    name: teamUserDisplayName(user),
-    phone: user.telephone.trim() || null,
-    email: user.email.trim() || null,
+    leadId: lead.id,
+    name,
+    phone: lead.phone?.trim() || null,
+    email: null,
   };
 }
 
 function memberKey(member: MeetingMember): string {
+  if (member.leadId) return `l:${member.leadId}`;
   if (member.userId) return `u:${member.userId}`;
   return `n:${member.name.toLowerCase()}|${(member.email ?? "").toLowerCase()}|${member.phone ?? ""}`;
 }
@@ -157,9 +153,9 @@ export function MeetingFormModal({
   const [leadPickerOpen, setLeadPickerOpen] = useState(false);
   const pickerRef = useRef<HTMLDivElement>(null);
 
-  const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
-  const [teamLoading, setTeamLoading] = useState(false);
   const [memberQuery, setMemberQuery] = useState("");
+  const [memberLeads, setMemberLeads] = useState<ClickUpLead[]>([]);
+  const [memberLeadsLoading, setMemberLeadsLoading] = useState(false);
   const [memberPickerOpen, setMemberPickerOpen] = useState(false);
   const memberPickerRef = useRef<HTMLDivElement>(null);
 
@@ -170,14 +166,21 @@ export function MeetingFormModal({
     setLeadPickerOpen(false);
     setMemberQuery("");
     setMemberPickerOpen(false);
+    setLeads([]);
+    setMemberLeads([]);
   }, [open, meeting, prefillDate]);
 
+  // Contact: recherche serveur GET /leads?search= (page Leads — pas /clients)
   useEffect(() => {
     if (!open || form.manualContact) return;
     let cancelled = false;
     const t = window.setTimeout(() => {
       setLeadsLoading(true);
-      void fetchLeads({ page: 1, pageSize: 50 })
+      void fetchLeads({
+        page: 1,
+        pageSize: 40,
+        search: leadQuery.trim() || null,
+      })
         .then((res) => {
           if (!cancelled) setLeads(res.leads);
         })
@@ -187,31 +190,39 @@ export function MeetingFormModal({
         .finally(() => {
           if (!cancelled) setLeadsLoading(false);
         });
-    }, 200);
+    }, 300);
     return () => {
       cancelled = true;
       window.clearTimeout(t);
     };
-  }, [open, form.manualContact]);
+  }, [open, form.manualContact, leadQuery]);
 
+  // Membres côté client: même API leads
   useEffect(() => {
-    if (!open) return;
+    if (!open || !memberPickerOpen) return;
     let cancelled = false;
-    setTeamLoading(true);
-    void fetchTeamUsers()
-      .then((users) => {
-        if (!cancelled) setTeamUsers(users);
+    const t = window.setTimeout(() => {
+      setMemberLeadsLoading(true);
+      void fetchLeads({
+        page: 1,
+        pageSize: 40,
+        search: memberQuery.trim() || null,
       })
-      .catch(() => {
-        if (!cancelled) setTeamUsers([]);
-      })
-      .finally(() => {
-        if (!cancelled) setTeamLoading(false);
-      });
+        .then((res) => {
+          if (!cancelled) setMemberLeads(res.leads);
+        })
+        .catch(() => {
+          if (!cancelled) setMemberLeads([]);
+        })
+        .finally(() => {
+          if (!cancelled) setMemberLeadsLoading(false);
+        });
+    }, 300);
     return () => {
       cancelled = true;
+      window.clearTimeout(t);
     };
-  }, [open]);
+  }, [open, memberPickerOpen, memberQuery]);
 
   useEffect(() => {
     if (!leadPickerOpen) return;
@@ -235,38 +246,27 @@ export function MeetingFormModal({
     return () => document.removeEventListener("mousedown", onDown);
   }, [memberPickerOpen]);
 
-  const filteredLeads = useMemo(() => {
-    const q = leadQuery.trim().toLowerCase();
-    if (!q) return leads.slice(0, 30);
-    return leads
-      .filter((l) => {
-        const name = cleanLeadDisplayName(l.name).toLowerCase();
-        const phone = (l.phone ?? "").toLowerCase();
-        return name.includes(q) || phone.includes(q);
-      })
-      .slice(0, 30);
-  }, [leads, leadQuery]);
-
-  const selectedMemberKeys = useMemo(
-    () => new Set(form.members.map(memberKey)),
+  const selectedMemberLeadIds = useMemo(
+    () =>
+      new Set(
+        form.members
+          .map((m) => m.leadId)
+          .filter((id): id is string => Boolean(id)),
+      ),
     [form.members],
   );
 
-  const filteredTeamUsers = useMemo(() => {
-    const q = memberQuery.trim().toLowerCase();
-    const available = teamUsers.filter(
-      (u) => !selectedMemberKeys.has(`u:${u.id}`),
-    );
-    if (!q) return available.slice(0, 40);
-    return available
-      .filter((u) => {
-        const name = teamUserDisplayName(u).toLowerCase();
-        const email = u.email.toLowerCase();
-        const phone = u.telephone.toLowerCase();
-        return name.includes(q) || email.includes(q) || phone.includes(q);
+  const contactLeadResults = useMemo(() => leads.slice(0, 40), [leads]);
+
+  const memberLeadResults = useMemo(() => {
+    return memberLeads
+      .filter((l) => {
+        if (form.leadId && l.id === form.leadId) return false;
+        if (selectedMemberLeadIds.has(l.id)) return false;
+        return true;
       })
       .slice(0, 40);
-  }, [teamUsers, memberQuery, selectedMemberKeys]);
+  }, [memberLeads, form.leadId, selectedMemberLeadIds]);
 
   const dateIsBlocked =
     Boolean(form.date.trim()) &&
@@ -292,19 +292,18 @@ export function MeetingFormModal({
       contactName: name,
       contactPhone: lead.phone ?? "",
       manualContact: false,
+      members: prev.members.filter((m) => m.leadId !== lead.id),
     }));
     setLeadQuery(name);
     setLeadPickerOpen(false);
   };
 
-  const addMember = (user: TeamUser) => {
-    const next = teamUserToMember(user);
-    if (!next.phone && !next.email) {
-      toast.error(
-        "Ce membre n’a ni téléphone ni email — impossible de l’ajouter.",
-      );
+  const addMemberFromLead = (lead: ClickUpLead) => {
+    if (form.leadId && lead.id === form.leadId) {
+      toast.message("Ce lead est déjà le contact principal.");
       return;
     }
+    const next = leadToMember(lead);
     setForm((prev) => {
       if (prev.members.some((m) => memberKey(m) === memberKey(next))) {
         return prev;
@@ -313,12 +312,26 @@ export function MeetingFormModal({
     });
     setMemberQuery("");
     setMemberPickerOpen(false);
+    if (!next.phone) {
+      toast.message("Lead ajouté sans téléphone", {
+        description: "Ajoutez un email ci-dessous pour les rappels.",
+      });
+    }
   };
 
   const removeMember = (key: string) => {
     setForm((prev) => ({
       ...prev,
       members: prev.members.filter((m) => memberKey(m) !== key),
+    }));
+  };
+
+  const updateMemberEmail = (key: string, email: string) => {
+    setForm((prev) => ({
+      ...prev,
+      members: prev.members.map((m) =>
+        memberKey(m) === key ? { ...m, email: email.trim() || null } : m,
+      ),
     }));
   };
 
@@ -381,7 +394,7 @@ export function MeetingFormModal({
     }
 
     const membersPayload: MeetingMember[] = form.members.map((m) => ({
-      userId: m.userId ?? null,
+      leadId: m.leadId ?? null,
       name: m.name.trim(),
       phone: m.phone?.trim() || null,
       email: m.email?.trim() || null,
@@ -541,11 +554,12 @@ export function MeetingFormModal({
           <div className="flex items-center justify-between gap-2">
             <div>
               <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-                Contact *
+                Lead *
               </span>
               {!form.manualContact ? (
                 <p className="mt-0.5 text-[11px] text-zinc-500">
-                  Recherche dans les leads (pas la page Clients).
+                  Recherche via <span className="text-zinc-400">GET /leads</span>{" "}
+                  (page Leads) — pas la page Clients.
                 </p>
               ) : null}
             </div>
@@ -581,7 +595,7 @@ export function MeetingFormModal({
                     }));
                   }}
                   onFocus={() => setLeadPickerOpen(true)}
-                  placeholder="Rechercher un client dans les leads…"
+                  placeholder="Rechercher un lead (nom ou téléphone)…"
                   autoComplete="off"
                   className="w-full rounded-xl border border-zinc-700 bg-zinc-950/80 py-2.5 pl-10 pr-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30"
                 />
@@ -596,14 +610,14 @@ export function MeetingFormModal({
                   {leadsLoading ? (
                     <div className="flex items-center justify-center gap-2 py-4 text-xs text-zinc-500">
                       <Loader2 className="size-4 animate-spin" />
-                      Chargement des leads…
+                      Recherche dans les leads…
                     </div>
-                  ) : filteredLeads.length === 0 ? (
+                  ) : contactLeadResults.length === 0 ? (
                     <p className="px-3 py-3 text-xs text-zinc-500">
-                      Aucun lead trouvé.
+                      Aucun lead trouvé. Essayez un autre nom / téléphone.
                     </p>
                   ) : (
-                    filteredLeads.map((lead) => {
+                    contactLeadResults.map((lead) => {
                       const name = cleanLeadDisplayName(lead.name) || lead.name;
                       const selected = form.leadId === lead.id;
                       return (
@@ -623,6 +637,7 @@ export function MeetingFormModal({
                             </span>
                             <span className="block truncate font-mono text-[11px] text-zinc-500">
                               {lead.phone || "Sans téléphone"}
+                              {lead.list_name ? ` · ${lead.list_name}` : ""}
                             </span>
                           </span>
                         </button>
@@ -671,40 +686,50 @@ export function MeetingFormModal({
             <div className="flex items-center gap-2">
               <Users className="size-4 text-emerald-400" />
               <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
-                Membres de l&apos;équipe
+                Membres de l&apos;équipe client
               </span>
             </div>
             <p className="text-[11px] leading-relaxed text-zinc-500">
-              Ajoutez owner, assistant ou d&apos;autres membres (équipe /
-              Paramètres). Ils recevront aussi les rappels WhatsApp et email.
+              Autres personnes côté client (owner, assistant…) — aussi depuis
+              la page Leads. Ils recevront les rappels WhatsApp / email.
             </p>
 
             {form.members.length > 0 ? (
-              <ul className="space-y-1.5">
+              <ul className="space-y-2">
                 {form.members.map((m) => {
                   const key = memberKey(m);
                   return (
                     <li
                       key={key}
-                      className="flex items-start justify-between gap-2 rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2"
+                      className="rounded-lg border border-zinc-800 bg-zinc-900/80 px-3 py-2"
                     >
-                      <div className="min-w-0">
-                        <p className="truncate text-sm font-medium text-zinc-100">
-                          {m.name}
-                        </p>
-                        <p className="truncate font-mono text-[11px] text-zinc-500">
-                          {[m.phone, m.email].filter(Boolean).join(" · ") ||
-                            "Sans contact"}
-                        </p>
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-medium text-zinc-100">
+                            {m.name}
+                          </p>
+                          <p className="truncate font-mono text-[11px] text-zinc-500">
+                            {m.phone || "Sans téléphone"}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => removeMember(key)}
+                          className="flex size-7 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-red-300"
+                          aria-label={`Retirer ${m.name}`}
+                        >
+                          <X className="size-3.5" />
+                        </button>
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => removeMember(key)}
-                        className="flex size-7 shrink-0 items-center justify-center rounded-lg text-zinc-500 hover:bg-zinc-800 hover:text-red-300"
-                        aria-label={`Retirer ${m.name}`}
-                      >
-                        <X className="size-3.5" />
-                      </button>
+                      <input
+                        type="email"
+                        value={m.email ?? ""}
+                        onChange={(e) =>
+                          updateMemberEmail(key, e.target.value)
+                        }
+                        placeholder="Email (optionnel)"
+                        className="mt-2 w-full rounded-lg border border-zinc-700 bg-zinc-950/80 px-2.5 py-1.5 text-xs text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500"
+                      />
                     </li>
                   );
                 })}
@@ -721,31 +746,30 @@ export function MeetingFormModal({
                     setMemberPickerOpen(true);
                   }}
                   onFocus={() => setMemberPickerOpen(true)}
-                  placeholder="Rechercher un membre de l’équipe…"
+                  placeholder="Rechercher un lead (membre)…"
+                  autoComplete="off"
                   className="w-full rounded-xl border border-zinc-700 bg-zinc-950/80 py-2.5 pl-10 pr-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30"
                 />
               </div>
               {memberPickerOpen ? (
                 <div className="app-scroll absolute left-0 right-0 z-20 mt-1 max-h-52 overflow-y-auto rounded-xl border border-zinc-700 bg-zinc-950 p-1 shadow-xl">
-                  {teamLoading ? (
+                  {memberLeadsLoading ? (
                     <div className="flex items-center justify-center gap-2 py-4 text-xs text-zinc-500">
                       <Loader2 className="size-4 animate-spin" />
-                      Chargement de l’équipe…
+                      Recherche dans les leads…
                     </div>
-                  ) : filteredTeamUsers.length === 0 ? (
+                  ) : memberLeadResults.length === 0 ? (
                     <p className="px-3 py-3 text-xs text-zinc-500">
-                      {teamUsers.length === 0
-                        ? "Aucun membre équipe trouvé (GET /users)."
-                        : "Aucun résultat — ou déjà ajouté."}
+                      Aucun lead trouvé — ou déjà ajouté / contact principal.
                     </p>
                   ) : (
-                    filteredTeamUsers.map((user) => {
-                      const name = teamUserDisplayName(user);
+                    memberLeadResults.map((lead) => {
+                      const name = cleanLeadDisplayName(lead.name) || lead.name;
                       return (
                         <button
-                          key={user.id}
+                          key={lead.id}
                           type="button"
-                          onClick={() => addMember(user)}
+                          onClick={() => addMemberFromLead(lead)}
                           className="flex w-full items-start gap-2 rounded-lg px-3 py-2 text-left hover:bg-zinc-800"
                         >
                           <UserRound className="mt-0.5 size-4 shrink-0 text-emerald-500/80" />
@@ -753,15 +777,9 @@ export function MeetingFormModal({
                             <span className="block truncate text-sm text-zinc-100">
                               {name}
                             </span>
-                            <span className="block truncate text-[11px] text-zinc-500">
-                              {[user.telephone || null, user.email || null]
-                                .filter(Boolean)
-                                .join(" · ") || "Sans téléphone / email"}
-                            </span>
-                            <span className="mt-0.5 block text-[10px] uppercase tracking-wider text-zinc-600">
-                              {user.role === "admin"
-                                ? "Admin"
-                                : "Admin WhatsApp"}
+                            <span className="block truncate font-mono text-[11px] text-zinc-500">
+                              {lead.phone || "Sans téléphone"}
+                              {lead.list_name ? ` · ${lead.list_name}` : ""}
                             </span>
                           </span>
                         </button>

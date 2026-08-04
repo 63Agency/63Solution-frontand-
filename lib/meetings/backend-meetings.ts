@@ -158,8 +158,13 @@ function parseMeetingMember(row: unknown): MeetingMember | null {
   if (!name) return null;
   const phoneRaw = r.phone ?? r.telephone ?? r.contactPhone;
   const emailRaw = r.email ?? r.contactEmail;
+  const leadIdRaw = r.leadId ?? r.lead_id;
   const userIdRaw = r.userId ?? r.user_id;
   return {
+    leadId:
+      leadIdRaw == null || leadIdRaw === ""
+        ? null
+        : String(leadIdRaw),
     userId:
       userIdRaw == null || userIdRaw === ""
         ? null
