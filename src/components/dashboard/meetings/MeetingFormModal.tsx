@@ -16,6 +16,7 @@ import { cleanLeadDisplayName } from "@/lib/leads/phone-extract";
 import type { ClickUpLead } from "@/lib/leads/types";
 import {
   createMeeting,
+  sendMeetingReminder,
   updateMeeting,
 } from "@/lib/meetings/backend-meetings";
 import {
@@ -53,6 +54,8 @@ type FormState = {
   manualContact: boolean;
   reminders: MeetingRemindersConfig;
   members: MeetingMember[];
+  /** Création uniquement : envoyer rappel immédiat au client. */
+  notifyClientOnCreate: boolean;
 };
 
 function pad(n: number) {
@@ -100,6 +103,7 @@ const emptyForm = (prefillDate?: Date | null): FormState => {
     manualContact: false,
     reminders: defaultRemindersConfig(true, true),
     members: [],
+    notifyClientOnCreate: true,
   };
 };
 
@@ -122,6 +126,7 @@ function meetingToForm(meeting: Meeting): FormState {
       Boolean(meeting.contactEmail?.trim()),
     ),
     members: meeting.members ?? [],
+    notifyClientOnCreate: false,
   };
 }
 
@@ -402,7 +407,30 @@ export function MeetingFormModal({
 
     setSaving(true);
     try {
-      const payload = {
+      if (isEdit && meeting) {
+        const saved = await updateMeeting(meeting.id, {
+          title,
+          meetingDate,
+          contactName,
+          contactPhone: contactPhone || null,
+          contactEmail: contactEmail || null,
+          members: membersPayload,
+          status: form.status,
+          notes: form.notes.trim() || null,
+          leadId: form.manualContact ? null : form.leadId || null,
+          reminders: form.reminders,
+        });
+        onSaved({
+          ...saved,
+          durationMinutes: form.durationMinutes,
+          members: saved.members?.length ? saved.members : membersPayload,
+        });
+        toast.success("Rendez-vous mis à jour.");
+        onClose();
+        return;
+      }
+
+      const saved = await createMeeting({
         title,
         meetingDate,
         contactName,
@@ -413,26 +441,40 @@ export function MeetingFormModal({
         notes: form.notes.trim() || undefined,
         leadId: form.manualContact ? undefined : form.leadId || undefined,
         reminders: form.reminders,
-      };
+        notifyOnCreate: form.notifyClientOnCreate,
+      });
 
-      const saved =
-        isEdit && meeting
-          ? await updateMeeting(meeting.id, {
-              ...payload,
-              contactPhone: contactPhone || null,
-              contactEmail: contactEmail || null,
-              notes: form.notes.trim() || null,
-              leadId: form.manualContact ? null : form.leadId || null,
-              members: membersPayload,
-            })
-          : await createMeeting(payload);
+      let reminderSent = false;
+      if (form.notifyClientOnCreate) {
+        try {
+          await sendMeetingReminder(saved.id);
+          reminderSent = true;
+        } catch (reminderErr) {
+          toast.message("Rendez-vous créé", {
+            description:
+              reminderErr instanceof Error
+                ? `Rappel non envoyé : ${reminderErr.message}`
+                : "Rappel non envoyé — vous pourrez le renvoyer depuis le détail.",
+          });
+        }
+      }
 
       onSaved({
         ...saved,
         durationMinutes: form.durationMinutes,
         members: saved.members?.length ? saved.members : membersPayload,
+        reminderWhatsappSent:
+          saved.reminderWhatsappSent ||
+          (reminderSent && Boolean(contactPhone)),
+        reminderEmailSent:
+          saved.reminderEmailSent ||
+          (reminderSent && Boolean(contactEmail)),
       });
-      toast.success(isEdit ? "Rendez-vous mis à jour." : "Rendez-vous créé.");
+      toast.success(
+        reminderSent
+          ? "Rendez-vous créé — rappel envoyé au client."
+          : "Rendez-vous créé.",
+      );
       onClose();
     } catch (err) {
       toast.error(
@@ -822,6 +864,28 @@ export function MeetingFormModal({
               placeholder="Contexte, objectifs…"
             />
           </label>
+
+          {!isEdit ? (
+            <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-zinc-800 bg-zinc-950/40 px-3 py-3">
+              <input
+                type="checkbox"
+                checked={form.notifyClientOnCreate}
+                onChange={(e) =>
+                  setField("notifyClientOnCreate", e.target.checked)
+                }
+                className="mt-0.5 size-4 rounded border-zinc-600 bg-zinc-900 text-emerald-500 focus:ring-emerald-500/40"
+              />
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-zinc-100">
+                  Envoyer un rappel au client maintenant
+                </span>
+                <span className="mt-0.5 block text-[11px] leading-relaxed text-zinc-500">
+                  WhatsApp et/ou email au contact principal (et membres ajoutés)
+                  dès la création du rendez-vous.
+                </span>
+              </span>
+            </label>
+          ) : null}
 
           <div className="flex justify-end gap-2 border-t border-zinc-800 pt-4 pb-1">
             <button

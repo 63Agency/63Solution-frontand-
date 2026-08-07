@@ -131,6 +131,11 @@ export type CreateMeetingPayload = {
   status?: MeetingStatus;
   notes?: string;
   reminders?: MeetingRemindersConfig;
+  /**
+   * true = à la création, envoyer immédiatement une notification / rappel
+   * au contact (+ members) via WhatsApp / email.
+   */
+  notifyOnCreate?: boolean;
 };
 
 export type UpdateMeetingPayload = {
