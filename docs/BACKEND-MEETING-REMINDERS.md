@@ -136,6 +136,31 @@ Le frontend affiche déjà le bouton **« Envoyer le rappel maintenant »** pour
 
 Optionnel : accepter `{ "channel": "whatsapp" | "email", "offset": "2h" }` pour cibler un rappel précis. Sans body = envoi manuel immédiat (tous les canaux disponibles), sans toucher au scheduler auto.
 
+### Réponse attendue de `POST .../send-reminder`
+
+Le front lit maintenant les flags d’envoi. Merci de retourner explicitement :
+
+```json
+{
+  "ok": true,
+  "whatsappSent": true,
+  "emailSent": false,
+  "whatsappError": null,
+  "emailError": "SMTP non configuré"
+}
+```
+
+Ou :
+
+```json
+{
+  "notificationSent": { "whatsapp": true, "email": false },
+  "whatsappError": "Meta: (#131047) Re-engagement message / template requis"
+}
+```
+
+Si WhatsApp échoue (fenêtre 24h, template manquant, numéro invalide) → **ne pas** renvoyer seulement `{ ok: true }` : mettre `whatsappSent: false` + `whatsappError` avec le message Meta.
+
 ## Checklist backend
 
 1. Persister `reminders` sur create/update  
@@ -146,5 +171,3 @@ Optionnel : accepter `{ "channel": "whatsapp" | "email", "offset": "2h" }` pour 
 6. Logs d’échec + status `failed`  
 7. `POST .../send-reminder` manuel ≠ mise à jour des status auto J-2/24h/2h  
 8. Autoriser **`admin` + `admin_whatsapp`** sur `POST /meetings/:id/send-reminder`  
-9. Sur `POST /meetings` avec `notifyOnCreate: true` → envoi immédiat confirmation au client (+ members), idempotent avec `send-reminder`  
-

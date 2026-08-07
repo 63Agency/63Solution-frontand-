@@ -73,17 +73,39 @@ export function MeetingDetailPanel({
   const handleReminder = async () => {
     setBusy(true);
     try {
-      await sendMeetingReminder(meeting.id);
-      toast.success("Rappel manuel envoyé.");
+      const result = await sendMeetingReminder(meeting.id);
       setConfirmReminder(false);
-      // Ne pas toucher remindersStatus (J-2 / 24h / 2h) — envoi manuel ≠ rappels auto.
-      onChanged({
-        ...meeting,
-        reminderWhatsappSent:
-          meeting.reminderWhatsappSent || Boolean(meeting.contactPhone),
-        reminderEmailSent:
-          meeting.reminderEmailSent || Boolean(meeting.contactEmail),
+
+      if (result.whatsappSent || result.emailSent) {
+        const parts: string[] = [];
+        if (result.whatsappSent) parts.push("WhatsApp");
+        if (result.emailSent) parts.push("email");
+        toast.success(`Rappel envoyé (${parts.join(" + ")}).`);
+        onChanged({
+          ...meeting,
+          reminderWhatsappSent:
+            meeting.reminderWhatsappSent || result.whatsappSent,
+          reminderEmailSent: meeting.reminderEmailSent || result.emailSent,
+        });
+        return;
+      }
+
+      const details = [result.whatsappError, result.emailError]
+        .filter(Boolean)
+        .join(" · ");
+
+      if (details) {
+        toast.error(`Rappel non envoyé : ${details}`);
+        return;
+      }
+
+      // Legacy body without channel flags — Nest must return whatsappSent/emailSent
+      toast.message("Rappel demandé", {
+        description:
+          "Le backend n’a pas confirmé l’envoi WhatsApp/email. Vérifie les logs Nest / Meta.",
       });
+      onChanged({ ...meeting });
+      return;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Envoi du rappel impossible.");
     } finally {

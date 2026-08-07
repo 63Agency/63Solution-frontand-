@@ -445,10 +445,24 @@ export function MeetingFormModal({
       });
 
       let reminderSent = false;
+      let whatsappSent = false;
+      let emailSent = false;
       if (form.notifyClientOnCreate) {
         try {
-          await sendMeetingReminder(saved.id);
-          reminderSent = true;
+          const result = await sendMeetingReminder(saved.id);
+          whatsappSent = result.whatsappSent;
+          emailSent = result.emailSent;
+          reminderSent = whatsappSent || emailSent;
+          if (!reminderSent) {
+            const details = [result.whatsappError, result.emailError]
+              .filter(Boolean)
+              .join(" · ");
+            toast.message("Rendez-vous créé", {
+              description:
+                details ||
+                "Rappel non envoyé (WhatsApp/email). Vérifie Nest / Meta ou réessaie depuis le détail.",
+            });
+          }
         } catch (reminderErr) {
           toast.message("Rendez-vous créé", {
             description:
@@ -463,16 +477,17 @@ export function MeetingFormModal({
         ...saved,
         durationMinutes: form.durationMinutes,
         members: saved.members?.length ? saved.members : membersPayload,
-        reminderWhatsappSent:
-          saved.reminderWhatsappSent ||
-          (reminderSent && Boolean(contactPhone)),
-        reminderEmailSent:
-          saved.reminderEmailSent ||
-          (reminderSent && Boolean(contactEmail)),
+        reminderWhatsappSent: saved.reminderWhatsappSent || whatsappSent,
+        reminderEmailSent: saved.reminderEmailSent || emailSent,
       });
       toast.success(
         reminderSent
-          ? "Rendez-vous créé — rappel envoyé au client."
+          ? `Rendez-vous créé — rappel envoyé (${[
+              whatsappSent ? "WhatsApp" : null,
+              emailSent ? "email" : null,
+            ]
+              .filter(Boolean)
+              .join(" + ")}).`
           : "Rendez-vous créé.",
       );
       onClose();

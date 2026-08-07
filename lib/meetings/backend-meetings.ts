@@ -428,7 +428,97 @@ export async function deleteMeeting(id: string): Promise<void> {
   if (!res.ok) return parseApiError(res, `DELETE /meetings/${id}`);
 }
 
-export async function sendMeetingReminder(id: string): Promise<unknown> {
+export type SendMeetingReminderResult = {
+  ok: boolean;
+  whatsappSent: boolean;
+  emailSent: boolean;
+  whatsappError?: string | null;
+  emailError?: string | null;
+  raw?: unknown;
+};
+
+function parseSendReminderResult(raw: unknown): SendMeetingReminderResult {
+  if (!raw || typeof raw !== "object") {
+    return { ok: true, whatsappSent: false, emailSent: false, raw };
+  }
+  const r = raw as Record<string, unknown>;
+  const nested =
+    r.notificationSent && typeof r.notificationSent === "object"
+      ? (r.notificationSent as Record<string, unknown>)
+      : r.result && typeof r.result === "object"
+        ? (r.result as Record<string, unknown>)
+        : r;
+
+  const whatsappSent = Boolean(
+    nested.whatsapp === true ||
+      nested.whatsappSent === true ||
+      nested.whatsapp_sent === true ||
+      r.reminderWhatsappSent === true ||
+      r.whatsappSent === true,
+  );
+  const emailSent = Boolean(
+    nested.email === true ||
+      nested.emailSent === true ||
+      nested.email_sent === true ||
+      r.reminderEmailSent === true ||
+      r.emailSent === true,
+  );
+
+  const whatsappError =
+    typeof nested.whatsappError === "string"
+      ? nested.whatsappError
+      : typeof nested.whatsapp_error === "string"
+        ? nested.whatsapp_error
+        : typeof r.whatsappError === "string"
+          ? r.whatsappError
+          : null;
+  const emailError =
+    typeof nested.emailError === "string"
+      ? nested.emailError
+      : typeof nested.email_error === "string"
+        ? nested.email_error
+        : typeof r.emailError === "string"
+          ? r.emailError
+          : null;
+
+  // If backend returns explicit channel flags, trust them.
+  // If body is empty/{ok:true} without channel info, treat as unknown success (legacy).
+  const hasChannelInfo =
+    "whatsapp" in nested ||
+    "whatsappSent" in nested ||
+    "whatsapp_sent" in nested ||
+    "email" in nested ||
+    "emailSent" in nested ||
+    "email_sent" in nested ||
+    "reminderWhatsappSent" in r ||
+    "reminderEmailSent" in r ||
+    Boolean(whatsappError) ||
+    Boolean(emailError);
+
+  if (!hasChannelInfo) {
+    return {
+      ok: r.ok !== false,
+      whatsappSent: false,
+      emailSent: false,
+      whatsappError: null,
+      emailError: null,
+      raw,
+    };
+  }
+
+  return {
+    ok: whatsappSent || emailSent,
+    whatsappSent,
+    emailSent,
+    whatsappError,
+    emailError,
+    raw,
+  };
+}
+
+export async function sendMeetingReminder(
+  id: string,
+): Promise<SendMeetingReminderResult> {
   const base = requireApiBase();
   const res = await fetch(
     `${base}/meetings/${encodeURIComponent(id)}/send-reminder`,
@@ -439,7 +529,8 @@ export async function sendMeetingReminder(id: string): Promise<unknown> {
     },
   );
   if (!res.ok) return parseApiError(res, `POST /meetings/${id}/send-reminder`);
-  return res.json().catch(() => ({ ok: true }));
+  const raw = await res.json().catch(() => ({ ok: true }));
+  return parseSendReminderResult(raw);
 }
 
 export async function regenerateMeetingMeetLink(id: string): Promise<Meeting> {
