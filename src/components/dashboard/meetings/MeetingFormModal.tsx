@@ -447,6 +447,7 @@ export function MeetingFormModal({
       let reminderSent = false;
       let whatsappSent = false;
       let emailSent = false;
+      let reminderToastShown = false;
       if (form.notifyClientOnCreate) {
         try {
           const result = await sendMeetingReminder(saved.id);
@@ -462,6 +463,20 @@ export function MeetingFormModal({
                 details ||
                 "Rappel non envoyé (WhatsApp/email). Vérifie Nest / Meta ou réessaie depuis le détail.",
             });
+            reminderToastShown = true;
+          } else if (emailSent && !whatsappSent) {
+            toast.message("Rendez-vous créé — email envoyé", {
+              description:
+                result.whatsappError ||
+                "WhatsApp non envoyé. Voir whatsappError / logs Meta.",
+            });
+            reminderToastShown = true;
+          } else if (whatsappSent && !emailSent) {
+            toast.message("Rendez-vous créé — WhatsApp envoyé", {
+              description:
+                result.emailError || "Email non envoyé. Voir SMTP Nest.",
+            });
+            reminderToastShown = true;
           }
         } catch (reminderErr) {
           toast.message("Rendez-vous créé", {
@@ -470,6 +485,7 @@ export function MeetingFormModal({
                 ? `Rappel non envoyé : ${reminderErr.message}`
                 : "Rappel non envoyé — vous pourrez le renvoyer depuis le détail.",
           });
+          reminderToastShown = true;
         }
       }
 
@@ -480,16 +496,13 @@ export function MeetingFormModal({
         reminderWhatsappSent: saved.reminderWhatsappSent || whatsappSent,
         reminderEmailSent: saved.reminderEmailSent || emailSent,
       });
-      toast.success(
-        reminderSent
-          ? `Rendez-vous créé — rappel envoyé (${[
-              whatsappSent ? "WhatsApp" : null,
-              emailSent ? "email" : null,
-            ]
-              .filter(Boolean)
-              .join(" + ")}).`
-          : "Rendez-vous créé.",
-      );
+      if (!reminderToastShown) {
+        toast.success(
+          reminderSent && whatsappSent && emailSent
+            ? "Rendez-vous créé — rappel envoyé (WhatsApp + email)."
+            : "Rendez-vous créé.",
+        );
+      }
       onClose();
     } catch (err) {
       toast.error(

@@ -76,11 +76,25 @@ export function MeetingDetailPanel({
       const result = await sendMeetingReminder(meeting.id);
       setConfirmReminder(false);
 
-      if (result.whatsappSent || result.emailSent) {
-        const parts: string[] = [];
-        if (result.whatsappSent) parts.push("WhatsApp");
-        if (result.emailSent) parts.push("email");
-        toast.success(`Rappel envoyé (${parts.join(" + ")}).`);
+      const parts: string[] = [];
+      if (result.whatsappSent) parts.push("WhatsApp");
+      if (result.emailSent) parts.push("email");
+
+      if (parts.length > 0) {
+        if (result.whatsappSent && result.emailSent) {
+          toast.success("Rappel envoyé (WhatsApp + email).");
+        } else if (result.emailSent && !result.whatsappSent) {
+          toast.message("Email envoyé — WhatsApp non envoyé", {
+            description:
+              result.whatsappError ||
+              "Voir whatsappError / logs Meta côté Nest.",
+          });
+        } else if (result.whatsappSent && !result.emailSent) {
+          toast.message("WhatsApp envoyé — email non envoyé", {
+            description:
+              result.emailError || "Voir emailError / SMTP côté Nest.",
+          });
+        }
         onChanged({
           ...meeting,
           reminderWhatsappSent:
@@ -99,13 +113,11 @@ export function MeetingDetailPanel({
         return;
       }
 
-      // Legacy body without channel flags — Nest must return whatsappSent/emailSent
       toast.message("Rappel demandé", {
         description:
           "Le backend n’a pas confirmé l’envoi WhatsApp/email. Vérifie les logs Nest / Meta.",
       });
       onChanged({ ...meeting });
-      return;
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Envoi du rappel impossible.");
     } finally {
