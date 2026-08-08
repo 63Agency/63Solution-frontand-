@@ -94,27 +94,36 @@ Les flags legacy `reminderWhatsappSent` / `reminderEmailSent` restent supportés
 
 ## Envoi immédiat à la création
 
-Le frontend envoie `notifyOnCreate: true` sur `POST /meetings` (case cochée par défaut), puis appelle aussi `POST /meetings/:id/send-reminder` en secours.
+Le frontend envoie `notifyOnCreate: true` sur `POST /meetings` (case cochée par défaut).
+
+**Nest** envoie la confirmation via `notifyOnCreate → sendCreateConfirmation`.  
+Le front **ne** rappelle **pas** `POST /meetings/:id/send-reminder` après le create (évite le double envoi).
+
+`POST /meetings/:id/send-reminder` avec `{ "force": true }` = uniquement le bouton manuel « Envoyer / réenvoyer le rappel ».
 
 ### Attendu Nest (recommandé)
 
 Sur `POST /meetings`, si `notifyOnCreate === true` (ou toujours par défaut) :
 
 1. Créer le RDV + lien Meet.
-2. Envoyer **immédiatement** une notification / confirmation au contact (+ `members[]`) :
+2. Envoyer **immédiatement** une notification / confirmation au contact (+ `members[]`) via `sendCreateConfirmation` :
    - WhatsApp si `contactPhone` / `members[].phone`
    - Email si `contactEmail` / `members[].email`
 3. Contenu : titre, date/heure (Casablanca), lien Meet.
 4. Ne **pas** marquer les jobs auto `2d` / `24h` / `2h` comme `sent` (même règle que le rappel manuel).
 5. Réponse optionnelle : `notificationSent: { whatsapp: boolean, email: boolean }`.
 
-Si Nest gère déjà l’envoi via `notifyOnCreate`, le 2ᵉ appel front `send-reminder` doit rester **idempotent** (ne pas spammer).
-
 ---
 
 ## Endpoint manuel (existant)
 
-`POST /meetings/:id/send-reminder` — envoi immédiat.
+`POST /meetings/:id/send-reminder` — envoi immédiat / **réenvoi manuel**.
+
+Body (front bouton manuel) :
+
+```json
+{ "force": true }
+```
 
 ### Rôles autorisés
 

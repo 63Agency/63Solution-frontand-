@@ -73,7 +73,7 @@ export function MeetingDetailPanel({
   const handleReminder = async () => {
     setBusy(true);
     try {
-      const result = await sendMeetingReminder(meeting.id);
+      const result = await sendMeetingReminder(meeting.id, { force: true });
       setConfirmReminder(false);
 
       const parts: string[] = [];

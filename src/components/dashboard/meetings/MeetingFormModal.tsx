@@ -16,7 +16,6 @@ import { cleanLeadDisplayName } from "@/lib/leads/phone-extract";
 import type { ClickUpLead } from "@/lib/leads/types";
 import {
   createMeeting,
-  sendMeetingReminder,
   updateMeeting,
 } from "@/lib/meetings/backend-meetings";
 import {
@@ -441,68 +440,20 @@ export function MeetingFormModal({
         notes: form.notes.trim() || undefined,
         leadId: form.manualContact ? undefined : form.leadId || undefined,
         reminders: form.reminders,
+        // Backend: notifyOnCreate → sendCreateConfirmation (pas de send-reminder ici)
         notifyOnCreate: form.notifyClientOnCreate,
       });
-
-      let reminderSent = false;
-      let whatsappSent = false;
-      let emailSent = false;
-      let reminderToastShown = false;
-      if (form.notifyClientOnCreate) {
-        try {
-          const result = await sendMeetingReminder(saved.id);
-          whatsappSent = result.whatsappSent;
-          emailSent = result.emailSent;
-          reminderSent = whatsappSent || emailSent;
-          if (!reminderSent) {
-            const details = [result.whatsappError, result.emailError]
-              .filter(Boolean)
-              .join(" · ");
-            toast.message("Rendez-vous créé", {
-              description:
-                details ||
-                "Rappel non envoyé (WhatsApp/email). Vérifie Nest / Meta ou réessaie depuis le détail.",
-            });
-            reminderToastShown = true;
-          } else if (emailSent && !whatsappSent) {
-            toast.message("Rendez-vous créé — email envoyé", {
-              description:
-                result.whatsappError ||
-                "WhatsApp non envoyé. Voir whatsappError / logs Meta.",
-            });
-            reminderToastShown = true;
-          } else if (whatsappSent && !emailSent) {
-            toast.message("Rendez-vous créé — WhatsApp envoyé", {
-              description:
-                result.emailError || "Email non envoyé. Voir SMTP Nest.",
-            });
-            reminderToastShown = true;
-          }
-        } catch (reminderErr) {
-          toast.message("Rendez-vous créé", {
-            description:
-              reminderErr instanceof Error
-                ? `Rappel non envoyé : ${reminderErr.message}`
-                : "Rappel non envoyé — vous pourrez le renvoyer depuis le détail.",
-          });
-          reminderToastShown = true;
-        }
-      }
 
       onSaved({
         ...saved,
         durationMinutes: form.durationMinutes,
         members: saved.members?.length ? saved.members : membersPayload,
-        reminderWhatsappSent: saved.reminderWhatsappSent || whatsappSent,
-        reminderEmailSent: saved.reminderEmailSent || emailSent,
       });
-      if (!reminderToastShown) {
-        toast.success(
-          reminderSent && whatsappSent && emailSent
-            ? "Rendez-vous créé — rappel envoyé (WhatsApp + email)."
-            : "Rendez-vous créé.",
-        );
-      }
+      toast.success(
+        form.notifyClientOnCreate
+          ? "Rendez-vous créé — confirmation envoyée au client (backend)."
+          : "Rendez-vous créé.",
+      );
       onClose();
     } catch (err) {
       toast.error(
@@ -905,11 +856,12 @@ export function MeetingFormModal({
               />
               <span className="min-w-0">
                 <span className="block text-sm font-medium text-zinc-100">
-                  Envoyer un rappel au client maintenant
+                  Envoyer une confirmation au client
                 </span>
                 <span className="mt-0.5 block text-[11px] leading-relaxed text-zinc-500">
-                  WhatsApp et/ou email au contact principal (et membres ajoutés)
-                  dès la création du rendez-vous.
+                  WhatsApp / email à la création (géré par le backend via
+                  notifyOnCreate). Le renvoi manuel se fait depuis le détail du
+                  RDV.
                 </span>
               </span>
             </label>

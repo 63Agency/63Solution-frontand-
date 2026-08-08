@@ -518,14 +518,19 @@ function parseSendReminderResult(raw: unknown): SendMeetingReminderResult {
 
 export async function sendMeetingReminder(
   id: string,
+  options: { force?: boolean } = {},
 ): Promise<SendMeetingReminderResult> {
   const base = requireApiBase();
+  const body: Record<string, boolean> = {};
+  if (options.force === true) body.force = true;
+
   const res = await fetch(
     `${base}/meetings/${encodeURIComponent(id)}/send-reminder`,
     {
       method: "POST",
       headers: buildAuthHeaders(),
       credentials: "include",
+      body: Object.keys(body).length > 0 ? JSON.stringify(body) : undefined,
     },
   );
   if (!res.ok) return parseApiError(res, `POST /meetings/${id}/send-reminder`);
