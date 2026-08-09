@@ -38,6 +38,9 @@ function formatDate(iso: string): string {
 
 function roleBadge(role: TeamUser["role"]) {
   if (role === "admin") return { label: "Administrateur", className: "text-indigo-300" };
+  if (role === "fixed_meeting") {
+    return { label: "Fixed Meeting", className: "text-sky-300" };
+  }
   return { label: "Admin WhatsApp", className: "text-emerald-300" };
 }
 
@@ -237,6 +240,7 @@ export function SettingsUsersSection() {
                 }
               >
                 <option value="admin_whatsapp">Admin WhatsApp</option>
+                <option value="fixed_meeting">Fixed Meeting</option>
                 <option value="admin">Administrateur</option>
               </select>
             </div>

@@ -317,12 +317,14 @@ function parseTeamUser(row: unknown): TeamUser | null {
   const id = String(r.id ?? "");
   const email = String(r.email ?? "").trim();
   if (!id || !email) return null;
-  const roleRaw = String(r.role ?? "admin_whatsapp").toLowerCase();
+  const roleRaw = String(r.role ?? "admin_whatsapp").toLowerCase().replace(/[\s-]+/g, "_");
   let role: TeamUser["role"] = "admin_whatsapp";
   if (roleRaw === "admin" || roleRaw === "superadmin" || roleRaw === "super_admin") {
     role = "admin";
   } else if (roleRaw === "admin_whatsapp" || roleRaw === "adminwhatsapp") {
     role = "admin_whatsapp";
+  } else if (roleRaw === "fixed_meeting" || roleRaw === "fixedmeeting") {
+    role = "fixed_meeting";
   }
   return {
     id,
@@ -369,15 +371,29 @@ export async function createTeamUser(payload: CreateTeamUserPayload): Promise<Te
 
     if (res?.ok) {
       const raw = await res.json().catch(() => null);
-      const parsed = parseTeamUser(raw);
-      if (parsed) return parsed;
+      const row =
+        raw && typeof raw === "object" && (raw as { user?: unknown }).user
+          ? (raw as { user: unknown }).user
+          : raw;
+      const parsed = parseTeamUser(row);
+      if (parsed) {
+        // Preserve assignable role if API omits/normalizes it oddly.
+        if (
+          payload.role === "fixed_meeting" ||
+          payload.role === "admin_whatsapp" ||
+          payload.role === "admin"
+        ) {
+          parsed.role = payload.role;
+        }
+        return parsed;
+      }
     }
-    if (res && res.status !== 404) {
+    if (res && !res.ok && res.status !== 404) {
       const body = (await res.json().catch(() => null)) as { message?: string } | null;
       throw new Error(
         typeof body?.message === "string"
           ? body.message
-          : `Création utilisateur impossible (${res.status})`,
+          : `Création utilisateur impossible (${res.status}). Vérifier que le rôle "${payload.role}" est accepté par le backend.`,
       );
     }
   }

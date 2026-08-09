@@ -35,7 +35,7 @@ import { MeetingStatusBadge, ReminderOffsetBadge } from "./MeetingBadges";
 type Props = {
   meeting: Meeting | null;
   isAdmin: boolean;
-  /** Envoi manuel du rappel — admin + admin_whatsapp. */
+  /** Envoi manuel du rappel — admin, admin_whatsapp, fixed_meeting. */
   canSendReminder?: boolean;
   onClose: () => void;
   onEdit: (meeting: Meeting) => void;

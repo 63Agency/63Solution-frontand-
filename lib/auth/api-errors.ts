@@ -1,13 +1,29 @@
 import { getStoredUser } from "./backend-login";
-import { isAdminWhatsAppRole } from "./roles";
+import { isAdminWhatsAppRole, isFixedMeetingRole } from "./roles";
 
 const ADMIN_WHATSAPP_FALLBACK = "/dashboard/conversations";
+const FIXED_MEETING_FALLBACK = "/dashboard/calendrier";
 
-/** Redirige admin_whatsapp vers conversations sur 403 ; retourne true si traité. */
+function isAlreadyOnFallback(pathname: string, fallback: string): boolean {
+  return pathname === fallback || pathname.startsWith(`${fallback}/`);
+}
+
+/**
+ * Redirige les rôles limités vers leur page d’accueil sur 403 (accès page interdite).
+ * Ne redirige pas si on y est déjà — sinon boucle (ex. poll /notifications → 403).
+ */
 export function handleForbiddenForLimitedRole(res: Response): boolean {
   if (res.status !== 403 || typeof window === "undefined") return false;
   const role = getStoredUser()?.role ?? "";
+  const path = window.location.pathname;
+
+  if (isFixedMeetingRole(role)) {
+    if (isAlreadyOnFallback(path, FIXED_MEETING_FALLBACK)) return false;
+    window.location.replace(FIXED_MEETING_FALLBACK);
+    return true;
+  }
   if (!isAdminWhatsAppRole(role)) return false;
+  if (isAlreadyOnFallback(path, ADMIN_WHATSAPP_FALLBACK)) return false;
   window.location.replace(ADMIN_WHATSAPP_FALLBACK);
   return true;
 }

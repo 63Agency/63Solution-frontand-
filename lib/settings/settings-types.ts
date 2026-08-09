@@ -34,10 +34,10 @@ export type ChangePasswordPayload = {
   newPassword: string;
 };
 
-export type TeamUserRole = "admin" | "admin_whatsapp";
+export type TeamUserRole = "admin" | "admin_whatsapp" | "fixed_meeting";
 
 /** Rôles assignables à la création depuis Paramètres. */
-export type AssignableTeamUserRole = "admin_whatsapp" | "admin";
+export type AssignableTeamUserRole = "admin_whatsapp" | "admin" | "fixed_meeting";
 
 export type TeamUser = {
   id: string;

@@ -38,11 +38,21 @@ function parseUserPermissions(raw: unknown): UserPermissions | undefined {
         .filter((item): item is LeadsPermission => item != null)
     : [];
 
-  if (pages.length === 0 && leadsPermissions.length === 0) return undefined;
+  const meetings =
+    typeof obj.meetings === "boolean" ? obj.meetings : undefined;
+
+  if (
+    pages.length === 0 &&
+    leadsPermissions.length === 0 &&
+    meetings === undefined
+  ) {
+    return undefined;
+  }
 
   return {
     pages,
     ...(leadsPermissions.length > 0 ? { leadsPermissions } : {}),
+    ...(meetings !== undefined ? { meetings } : {}),
   };
 }
 
@@ -122,7 +132,7 @@ export function persistAuthSession(payload: BackendLoginSuccess): void {
 
 import { getDefaultDashboardRoute, resolveAllowedPages } from "./roles";
 
-/** Aligne avec le backend Nest (admin → /dashboard, admin WhatsApp → conversations). */
+/** Prefer API `route`, else first page in permissions (fixed_meeting → calendrier). */
 export function resolvePostLoginRoute(payload: BackendLoginSuccess): string {
   const route = payload.route?.trim();
   if (route?.startsWith("/")) {

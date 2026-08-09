@@ -1,4 +1,5 @@
-import { getApiBaseUrl, getStoredAccessToken } from "../auth/backend-login";
+import { getApiBaseUrl, getStoredAccessToken, getStoredUser } from "../auth/backend-login";
+import { isFixedMeetingRole } from "../auth/roles";
 import { fetchWhatsAppConversations } from "../whatsapp/backend-whatsapp";
 import type { WhatsAppConversation } from "../whatsapp/types";
 import { conversationIdFromNotificationHref } from "./notification-utils";
@@ -153,7 +154,7 @@ export async function fetchNotificationsFromApi(): Promise<NotificationsPage | n
       credentials: "include",
     });
 
-    if (res.status === 404) return null;
+    if (res.status === 404 || res.status === 403) return null;
 
     if (!res.ok) {
       console.warn(`[notifications] GET /notifications → ${res.status}`);
@@ -190,6 +191,15 @@ export async function fetchNotificationsFromApi(): Promise<NotificationsPage | n
 }
 
 export async function fetchNotificationsPage(): Promise<NotificationsPage> {
+  const role = getStoredUser()?.role ?? "";
+
+  // fixed_meeting : pas WhatsApp — évite 403 → redirect en boucle sur le calendrier.
+  if (isFixedMeetingRole(role)) {
+    const fromApi = await fetchNotificationsFromApi();
+    if (fromApi) return { ...fromApi, conversations: [] };
+    return { items: [], unreadCount: 0, source: "api", conversations: [] };
+  }
+
   const conversations = await fetchWhatsAppConversations().catch(() => []);
   const whatsappPage = buildWhatsAppFallbackPage(conversations);
 

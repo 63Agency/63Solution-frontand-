@@ -24,6 +24,7 @@ import {
   canViewTeamUsersSection,
   getDefaultDashboardRoute,
   resolveAllowedPages,
+  type UserPermissions,
 } from "@/lib/auth/roles";
 import {
   clearAuthSession,
@@ -90,6 +91,9 @@ export function IndustryDashboardShell({
   const [collapsed, setCollapsed] = useState(false);
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [userRole, setUserRole] = useState("");
+  const [userPermissions, setUserPermissions] = useState<UserPermissions | null>(
+    null,
+  );
   const [allowedPages, setAllowedPages] = useState<readonly string[]>([]);
   const [roleResolved, setRoleResolved] = useState(false);
   const [whatsAppExpanded, setWhatsAppExpanded] = useState(true);
@@ -103,6 +107,7 @@ export function IndustryDashboardShell({
     const stored = getStoredUser();
     if (stored?.role) {
       setUserRole(stored.role);
+      setUserPermissions(stored.permissions ?? null);
       setAllowedPages(resolveAllowedPages(stored.role, stored.permissions));
     }
 
@@ -110,6 +115,7 @@ export function IndustryDashboardShell({
       .then(({ user }) => {
         if (cancelled) return;
         setUserRole(user.role);
+        setUserPermissions(user.permissions ?? null);
         setAllowedPages(resolveAllowedPages(user.role, user.permissions));
         setRoleResolved(true);
       })
@@ -117,6 +123,7 @@ export function IndustryDashboardShell({
         if (cancelled) return;
         if (stored?.role) {
           setUserRole(stored.role);
+          setUserPermissions(stored.permissions ?? null);
           setAllowedPages(resolveAllowedPages(stored.role, stored.permissions));
         }
         setRoleResolved(true);
@@ -154,7 +161,15 @@ export function IndustryDashboardShell({
 
   useEffect(() => {
     let cancelled = false;
-    if (!roleResolved || !canAccessDashboardHref("/dashboard/calendrier", userRole, allowedPages)) {
+    if (
+      !roleResolved ||
+      !canAccessDashboardHref(
+        "/dashboard/calendrier",
+        userRole,
+        allowedPages,
+        userPermissions,
+      )
+    ) {
       setTodayMeetingsCount(0);
       return;
     }
@@ -168,7 +183,7 @@ export function IndustryDashboardShell({
     return () => {
       cancelled = true;
     };
-  }, [pathname, roleResolved, userRole, allowedPages]);
+  }, [pathname, roleResolved, userRole, allowedPages, userPermissions]);
 
   useEffect(() => {
     if (!whatsAppMenuOpen) return;
@@ -230,10 +245,12 @@ export function IndustryDashboardShell({
 
   useEffect(() => {
     if (!roleResolved || !pathname || !userRole) return;
-    if (!canAccessDashboardHref(pathname, userRole, allowedPages)) {
+    if (
+      !canAccessDashboardHref(pathname, userRole, allowedPages, userPermissions)
+    ) {
       router.replace(getDefaultDashboardRoute(userRole, allowedPages));
     }
-  }, [pathname, router, userRole, roleResolved, allowedPages]);
+  }, [pathname, router, userRole, roleResolved, allowedPages, userPermissions]);
 
   const homeHref = useMemo(
     () => getDefaultDashboardRoute(userRole, allowedPages),
@@ -243,16 +260,39 @@ export function IndustryDashboardShell({
   const navItems = useMemo(() => {
     if (!roleResolved) return [];
     return allNavItems.filter((item) =>
-      canAccessDashboardHref(item.href, userRole, allowedPages),
+      canAccessDashboardHref(
+        item.href,
+        userRole,
+        allowedPages,
+        userPermissions,
+      ),
     );
-  }, [userRole, roleResolved, allowedPages]);
+  }, [userRole, roleResolved, allowedPages, userPermissions]);
 
   const showWhatsApp =
-    !roleResolved || canAccessDashboardHref(WHATSAPP_BASE, userRole, allowedPages);
+    !roleResolved ||
+    canAccessDashboardHref(
+      WHATSAPP_BASE,
+      userRole,
+      allowedPages,
+      userPermissions,
+    );
   const showFactures =
-    !roleResolved || canAccessDashboardHref(FACTURES_BASE, userRole, allowedPages);
+    !roleResolved ||
+    canAccessDashboardHref(
+      FACTURES_BASE,
+      userRole,
+      allowedPages,
+      userPermissions,
+    );
   const showParametres =
-    !roleResolved || canAccessDashboardHref(PARAMETRES_BASE, userRole, allowedPages);
+    !roleResolved ||
+    canAccessDashboardHref(
+      PARAMETRES_BASE,
+      userRole,
+      allowedPages,
+      userPermissions,
+    );
   const showUsersSub =
     !roleResolved || canViewTeamUsersSection(userRole);
 
