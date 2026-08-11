@@ -11,6 +11,11 @@ import {
   CalendarOff,
 } from "lucide-react";
 import { toast } from "sonner";
+import { getStoredUser } from "@/lib/auth/backend-login";
+import {
+  canAssignMeetingVisibility,
+  roleDisplayLabel,
+} from "@/lib/auth/roles";
 import { fetchLeads } from "@/lib/leads/api-leads";
 import { cleanLeadDisplayName } from "@/lib/leads/phone-extract";
 import type { ClickUpLead } from "@/lib/leads/types";
@@ -37,6 +42,11 @@ import {
   type MeetingStatus,
   type BlockedDay,
 } from "@/lib/meetings/types";
+import {
+  fetchMeetingAssignableUsers,
+  teamUserDisplayName,
+} from "@/lib/settings/backend-settings";
+import type { TeamUser } from "@/lib/settings/settings-types";
 import { cn } from "@/src/lib/utils";
 
 type FormState = {
@@ -53,6 +63,8 @@ type FormState = {
   manualContact: boolean;
   reminders: MeetingRemindersConfig;
   members: MeetingMember[];
+  /** Utilisateurs internes qui voient ce RDV. */
+  assignedUserIds: string[];
   /** Création uniquement : envoyer rappel immédiat au client. */
   notifyClientOnCreate: boolean;
 };
@@ -102,6 +114,7 @@ const emptyForm = (prefillDate?: Date | null): FormState => {
     manualContact: false,
     reminders: defaultRemindersConfig(true, true),
     members: [],
+    assignedUserIds: [],
     notifyClientOnCreate: true,
   };
 };
@@ -125,6 +138,9 @@ function meetingToForm(meeting: Meeting): FormState {
       Boolean(meeting.contactEmail?.trim()),
     ),
     members: meeting.members ?? [],
+    assignedUserIds: meeting.assignedUserIds?.length
+      ? [...meeting.assignedUserIds]
+      : (meeting.assignees ?? []).map((a) => a.userId),
     notifyClientOnCreate: false,
   };
 }
@@ -163,15 +179,53 @@ export function MeetingFormModal({
   const [memberPickerOpen, setMemberPickerOpen] = useState(false);
   const memberPickerRef = useRef<HTMLDivElement>(null);
 
+  const [canAssignUsers, setCanAssignUsers] = useState(false);
+  const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
+  const [teamUsersLoading, setTeamUsersLoading] = useState(false);
+  const [currentUserId, setCurrentUserId] = useState<string | null>(null);
+
   useEffect(() => {
     if (!open) return;
-    setForm(meeting ? meetingToForm(meeting) : emptyForm(prefillDate));
     setLeadQuery(meeting ? meeting.contactName : "");
     setLeadPickerOpen(false);
     setMemberQuery("");
     setMemberPickerOpen(false);
     setLeads([]);
     setMemberLeads([]);
+
+    const stored = getStoredUser();
+    const role = stored?.role ?? "";
+    const uid = stored?.id ?? null;
+    setCurrentUserId(uid);
+    const canAssign = canAssignMeetingVisibility(role);
+    setCanAssignUsers(canAssign);
+
+    const nextForm = meeting ? meetingToForm(meeting) : emptyForm(prefillDate);
+    if (!meeting && canAssign && uid) {
+      nextForm.assignedUserIds = [uid];
+    }
+    setForm(nextForm);
+
+    if (!canAssign) {
+      setTeamUsers([]);
+      return;
+    }
+
+    let cancelled = false;
+    setTeamUsersLoading(true);
+    void fetchMeetingAssignableUsers()
+      .then((users) => {
+        if (!cancelled) setTeamUsers(users);
+      })
+      .catch(() => {
+        if (!cancelled) setTeamUsers([]);
+      })
+      .finally(() => {
+        if (!cancelled) setTeamUsersLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [open, meeting, prefillDate]);
 
   // Contact: recherche serveur GET /leads?search= (page Leads — pas /clients)
@@ -339,6 +393,28 @@ export function MeetingFormModal({
     }));
   };
 
+  const toggleAssignedUser = (userId: string) => {
+    setForm((prev) => {
+      const has = prev.assignedUserIds.includes(userId);
+      if (has) {
+        // Garder au moins le créateur / soi-même si possible.
+        if (
+          currentUserId &&
+          userId === currentUserId &&
+          prev.assignedUserIds.length === 1
+        ) {
+          toast.message("Tu dois rester mentionné pour voir ce rendez-vous.");
+          return prev;
+        }
+        return {
+          ...prev,
+          assignedUserIds: prev.assignedUserIds.filter((id) => id !== userId),
+        };
+      }
+      return { ...prev, assignedUserIds: [...prev.assignedUserIds, userId] };
+    });
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     const title = form.title.trim();
@@ -397,12 +473,23 @@ export function MeetingFormModal({
       }
     }
 
+    if (canAssignUsers && form.assignedUserIds.length === 0) {
+      toast.error(
+        "Mentionne au moins une personne de l’équipe qui verra ce rendez-vous.",
+      );
+      return;
+    }
+
     const membersPayload: MeetingMember[] = form.members.map((m) => ({
       leadId: m.leadId ?? null,
       name: m.name.trim(),
       phone: m.phone?.trim() || null,
       email: m.email?.trim() || null,
     }));
+
+    const assignedUserIds = canAssignUsers
+      ? [...new Set(form.assignedUserIds)]
+      : undefined;
 
     setSaving(true);
     try {
@@ -414,6 +501,7 @@ export function MeetingFormModal({
           contactPhone: contactPhone || null,
           contactEmail: contactEmail || null,
           members: membersPayload,
+          ...(assignedUserIds ? { assignedUserIds } : {}),
           status: form.status,
           notes: form.notes.trim() || null,
           leadId: form.manualContact ? null : form.leadId || null,
@@ -423,6 +511,12 @@ export function MeetingFormModal({
           ...saved,
           durationMinutes: form.durationMinutes,
           members: saved.members?.length ? saved.members : membersPayload,
+          assignedUserIds: saved.assignedUserIds?.length
+            ? saved.assignedUserIds
+            : assignedUserIds ?? saved.assignedUserIds,
+          assignees: saved.assignees?.length
+            ? saved.assignees
+            : (assignedUserIds ?? []).map((userId) => ({ userId })),
         });
         toast.success("Rendez-vous mis à jour.");
         onClose();
@@ -436,6 +530,7 @@ export function MeetingFormModal({
         contactPhone: contactPhone || undefined,
         contactEmail: contactEmail || undefined,
         members: membersPayload,
+        ...(assignedUserIds ? { assignedUserIds } : {}),
         status: form.status,
         notes: form.notes.trim() || undefined,
         leadId: form.manualContact ? undefined : form.leadId || undefined,
@@ -448,6 +543,12 @@ export function MeetingFormModal({
         ...saved,
         durationMinutes: form.durationMinutes,
         members: saved.members?.length ? saved.members : membersPayload,
+        assignedUserIds: saved.assignedUserIds?.length
+          ? saved.assignedUserIds
+          : assignedUserIds ?? saved.assignedUserIds,
+        assignees: saved.assignees?.length
+          ? saved.assignees
+          : (assignedUserIds ?? []).map((userId) => ({ userId })),
       });
       toast.success(
         form.notifyClientOnCreate
@@ -702,6 +803,62 @@ export function MeetingFormModal({
               />
             </label>
           </div>
+
+          {canAssignUsers ? (
+            <div className="space-y-2 rounded-xl border border-sky-500/20 bg-sky-500/5 p-3">
+              <div className="flex items-center gap-2">
+                <Users className="size-4 text-sky-400" />
+                <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+                  Visible pour l&apos;équipe *
+                </span>
+              </div>
+              <p className="text-[11px] leading-relaxed text-zinc-500">
+                Mentionne qui (ex. Fixed Meeting) doit aussi voir ce RDV.
+                Admin et Admin WhatsApp voient toujours tous les rendez-vous,
+                y compris ceux déjà créés.
+              </p>
+              {teamUsersLoading ? (
+                <div className="flex items-center gap-2 py-2 text-xs text-zinc-500">
+                  <Loader2 className="size-4 animate-spin" />
+                  Chargement de l&apos;équipe…
+                </div>
+              ) : teamUsers.length === 0 ? (
+                <p className="text-xs text-amber-300/90">
+                  Impossible de charger les comptes. Vérifie que le backend
+                  autorise GET /users (ou /meetings/assignable-users).
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {teamUsers.map((user) => {
+                    const checked = form.assignedUserIds.includes(user.id);
+                    const label = teamUserDisplayName(user);
+                    return (
+                      <li key={user.id}>
+                        <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-zinc-800 bg-zinc-900/70 px-3 py-2.5 hover:border-zinc-700">
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleAssignedUser(user.id)}
+                            className="mt-0.5 size-4 rounded border-zinc-600 bg-zinc-900 text-sky-500 focus:ring-sky-500/40"
+                          />
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium text-zinc-100">
+                              {label}
+                              {currentUserId === user.id ? " (toi)" : ""}
+                            </span>
+                            <span className="mt-0.5 block truncate text-[11px] text-zinc-500">
+                              {roleDisplayLabel(user.role)}
+                              {user.email ? ` · ${user.email}` : ""}
+                            </span>
+                          </span>
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          ) : null}
 
           <div className="space-y-2 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
             <div className="flex items-center gap-2">

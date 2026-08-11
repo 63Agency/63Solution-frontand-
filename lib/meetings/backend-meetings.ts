@@ -6,6 +6,7 @@ import type {
   ListBlockedDaysQuery,
   ListMeetingsQuery,
   Meeting,
+  MeetingAssignee,
   MeetingMember,
   MeetingReminderChannelConfig,
   MeetingReminderChannelStatus,
@@ -192,6 +193,55 @@ function parseMeetingMembers(raw: unknown): MeetingMember[] {
     .filter((m): m is MeetingMember => m != null);
 }
 
+function parseMeetingAssignee(row: unknown): MeetingAssignee | null {
+  if (typeof row === "string" && row.trim()) {
+    return { userId: row.trim() };
+  }
+  if (!row || typeof row !== "object") return null;
+  const r = row as Record<string, unknown>;
+  const userId = String(r.userId ?? r.user_id ?? r.id ?? "").trim();
+  if (!userId) return null;
+  return {
+    userId,
+    prenom:
+      r.prenom == null && r.firstName == null
+        ? null
+        : String(r.prenom ?? r.firstName).trim() || null,
+    nom:
+      r.nom == null && r.lastName == null
+        ? null
+        : String(r.nom ?? r.lastName).trim() || null,
+    email: r.email == null ? null : String(r.email).trim() || null,
+    role: r.role == null ? null : String(r.role).trim() || null,
+  };
+}
+
+function parseMeetingAssignees(raw: unknown): MeetingAssignee[] {
+  if (!Array.isArray(raw)) return [];
+  const seen = new Set<string>();
+  const out: MeetingAssignee[] = [];
+  for (const row of raw) {
+    const parsed = parseMeetingAssignee(row);
+    if (!parsed || seen.has(parsed.userId)) continue;
+    seen.add(parsed.userId);
+    out.push(parsed);
+  }
+  return out;
+}
+
+function parseAssignedUserIds(
+  rawIds: unknown,
+  assignees: MeetingAssignee[],
+): string[] {
+  const fromIds = Array.isArray(rawIds)
+    ? rawIds
+        .map((id) => String(id ?? "").trim())
+        .filter((id) => id.length > 0)
+    : [];
+  if (fromIds.length > 0) return [...new Set(fromIds)];
+  return assignees.map((a) => a.userId);
+}
+
 function parseMeeting(row: unknown): Meeting | null {
   if (!row || typeof row !== "object") return null;
   const r = row as Record<string, unknown>;
@@ -237,6 +287,18 @@ function parseMeeting(row: unknown): Meeting | null {
     r.members ?? r.attendees ?? r.teamMembers ?? r.team_members,
   );
 
+  const assignees = parseMeetingAssignees(
+    r.assignees ?? r.assignedUsers ?? r.assigned_users,
+  );
+  const assignedUserIds = parseAssignedUserIds(
+    r.assignedUserIds ?? r.assigned_user_ids,
+    assignees,
+  );
+  const assigneesResolved =
+    assignees.length > 0
+      ? assignees
+      : assignedUserIds.map((userId) => ({ userId }));
+
   return {
     id,
     leadId:
@@ -249,6 +311,11 @@ function parseMeeting(row: unknown): Meeting | null {
     contactPhone,
     contactEmail,
     members,
+    assignees: assigneesResolved,
+    assignedUserIds:
+      assignedUserIds.length > 0
+        ? assignedUserIds
+        : assigneesResolved.map((a) => a.userId),
     status,
     reminderWhatsappSent,
     reminderEmailSent,

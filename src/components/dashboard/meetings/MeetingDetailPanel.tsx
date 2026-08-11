@@ -226,6 +226,46 @@ export function MeetingDetailPanel({
               </dt>
               <dd className="mt-1 text-zinc-300">{meeting.contactEmail || "—"}</dd>
             </div>
+            {meeting.assignees && meeting.assignees.length > 0 ? (
+              <div>
+                <dt className="text-[11px] uppercase tracking-wider text-zinc-500">
+                  Visible pour l&apos;équipe
+                </dt>
+                <dd className="mt-2 space-y-2">
+                  {meeting.assignees.map((a) => {
+                    const name =
+                      `${a.prenom ?? ""} ${a.nom ?? ""}`.trim() ||
+                      a.email ||
+                      a.userId;
+                    return (
+                      <div
+                        key={a.userId}
+                        className="rounded-lg border border-sky-500/20 bg-sky-500/5 px-3 py-2"
+                      >
+                        <p className="text-sm text-zinc-100">{name}</p>
+                        <p className="mt-0.5 text-[11px] text-zinc-500">
+                          {[a.role, a.email].filter(Boolean).join(" · ") ||
+                            a.userId}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </dd>
+              </div>
+            ) : meeting.assignedUserIds && meeting.assignedUserIds.length > 0 ? (
+              <div>
+                <dt className="text-[11px] uppercase tracking-wider text-zinc-500">
+                  Visible pour l&apos;équipe
+                </dt>
+                <dd className="mt-2 space-y-1">
+                  {meeting.assignedUserIds.map((id) => (
+                    <p key={id} className="font-mono text-xs text-zinc-400">
+                      {id}
+                    </p>
+                  ))}
+                </dd>
+              </div>
+            ) : null}
             {meeting.members && meeting.members.length > 0 ? (
               <div>
                 <dt className="text-[11px] uppercase tracking-wider text-zinc-500">

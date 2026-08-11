@@ -311,6 +311,66 @@ export async function fetchTeamUsers(): Promise<TeamUser[]> {
   );
 }
 
+/**
+ * Utilisateurs mentionnables sur un RDV (visibilité calendrier).
+ * GET /users, sinon GET /meetings/assignable-users (pour admin_whatsapp).
+ */
+export async function fetchMeetingAssignableUsers(): Promise<TeamUser[]> {
+  const base = process.env.NEXT_PUBLIC_API_URL?.replace(/\/$/, "");
+  const token =
+    typeof window !== "undefined"
+      ? window.localStorage.getItem("agency_auth_access_token")
+      : null;
+
+  const parseList = (raw: unknown): TeamUser[] => {
+    const list = Array.isArray(raw)
+      ? raw
+      : raw && typeof raw === "object" && Array.isArray((raw as { items?: unknown[] }).items)
+        ? (raw as { items: unknown[] }).items
+        : [];
+    return list
+      .map((row) => parseTeamUser(row))
+      .filter((u): u is TeamUser => u !== null);
+  };
+
+  if (base) {
+    const headers: Record<string, string> = token
+      ? { Authorization: `Bearer ${token}` }
+      : {};
+    const usersRes = await fetch(`${base}/users`, {
+      headers,
+      credentials: "include",
+    }).catch(() => null);
+    if (usersRes?.ok) {
+      const parsed = parseList(await usersRes.json().catch(() => null));
+      if (parsed.length > 0) {
+        writeTeamUsersLocal(parsed);
+        return parsed;
+      }
+    }
+
+    const assignableRes = await fetch(`${base}/meetings/assignable-users`, {
+      headers,
+      credentials: "include",
+    }).catch(() => null);
+    if (assignableRes?.ok) {
+      const parsed = parseList(await assignableRes.json().catch(() => null));
+      if (parsed.length > 0) return parsed;
+    }
+  }
+
+  return readTeamUsersLocal();
+}
+
+export function teamUserDisplayName(user: {
+  prenom?: string;
+  nom?: string;
+  email?: string;
+}): string {
+  const full = `${user.prenom ?? ""} ${user.nom ?? ""}`.trim();
+  return full || user.email?.trim() || "Utilisateur";
+}
+
 function parseTeamUser(row: unknown): TeamUser | null {
   if (!row || typeof row !== "object") return null;
   const r = row as Record<string, unknown>;

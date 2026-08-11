@@ -45,6 +45,19 @@ export function isFixedMeetingRole(role: string): boolean {
   return r === "fixed_meeting" || r === "fixedmeeting";
 }
 
+/** Mention / assignation de visibilité RDV — admin + admin_whatsapp. */
+export function canAssignMeetingVisibility(role: string): boolean {
+  return isFullAdminRole(role) || isAdminWhatsAppRole(role);
+}
+
+/**
+ * Voir tous les RDV (y compris legacy sans assignees).
+ * admin + admin_whatsapp ; fixed_meeting est filtré par assignedUserIds.
+ */
+export function canSeeAllMeetings(role: string): boolean {
+  return isFullAdminRole(role) || isAdminWhatsAppRole(role);
+}
+
 /** Accès dashboard complet + gestion des utilisateurs. */
 export function canManageTeamUsers(role: string): boolean {
   return isFullAdminRole(role);

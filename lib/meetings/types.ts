@@ -80,6 +80,13 @@ export type Meeting = {
    * Reçoivent aussi les rappels WhatsApp / email.
    */
   members: MeetingMember[];
+  /**
+   * Utilisateurs internes (admin, admin_whatsapp, fixed_meeting) autorisés à
+   * voir ce rendez-vous dans le calendrier. Distinct de `members` (leads client).
+   */
+  assignees: MeetingAssignee[];
+  /** IDs des utilisateurs assignés (miroir de `assignees`). */
+  assignedUserIds: string[];
   status: MeetingStatus;
   /** Agrégat legacy — true si au moins un rappel WhatsApp a été envoyé. */
   reminderWhatsappSent: boolean;
@@ -109,6 +116,15 @@ export type MeetingMember = {
   email?: string | null;
 };
 
+/** Utilisateur interne qui peut voir le RDV (visibilité calendrier). */
+export type MeetingAssignee = {
+  userId: string;
+  prenom?: string | null;
+  nom?: string | null;
+  email?: string | null;
+  role?: string | null;
+};
+
 export type MeetingStats = {
   today: number;
   thisWeek: number;
@@ -128,6 +144,11 @@ export type CreateMeetingPayload = {
   contactEmail?: string;
   /** Autres participants côté client (leads) — rappels fan-out. */
   members?: MeetingMember[];
+  /**
+   * IDs utilisateurs internes qui voient ce RDV.
+   * Le créateur doit être inclus (ou le backend l’ajoute automatiquement).
+   */
+  assignedUserIds?: string[];
   status?: MeetingStatus;
   notes?: string;
   reminders?: MeetingRemindersConfig;
@@ -146,6 +167,7 @@ export type UpdateMeetingPayload = {
   contactPhone?: string | null;
   contactEmail?: string | null;
   members?: MeetingMember[];
+  assignedUserIds?: string[];
   status?: MeetingStatus;
   notes?: string | null;
   reminders?: MeetingRemindersConfig;

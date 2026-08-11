@@ -37,6 +37,7 @@ import {
   calendarRangeIso,
   casablancaDayKey,
 } from "@/lib/meetings/meeting-datetime";
+import { filterMeetingsForViewer } from "@/lib/meetings/meeting-visibility";
 import {
   DEFAULT_MEETING_DURATION_MINUTES,
   MEETING_STATUS_COLORS,
@@ -118,6 +119,8 @@ export function CalendrierPage() {
   const [prefillDate, setPrefillDate] = useState<Date | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [canSendReminder, setCanSendReminder] = useState(false);
+  const [viewerRole, setViewerRole] = useState("");
+  const [viewerUserId, setViewerUserId] = useState<string | null>(null);
   const [isMobile, setIsMobile] = useState(false);
   const [blockedDays, setBlockedDays] = useState<BlockedDay[]>([]);
   const [blockedDaysOpen, setBlockedDaysOpen] = useState(false);
@@ -132,6 +135,8 @@ export function CalendrierPage() {
     const role = user?.role ?? "";
     setIsAdmin(isFullAdminRole(role));
     setCanSendReminder(canSendMeetingReminder(role));
+    setViewerRole(role);
+    setViewerUserId(user?.id ?? null);
   }, []);
 
   useEffect(() => {
@@ -237,7 +242,10 @@ export function CalendrierPage() {
         }),
         fetchMeetingStats(),
       ]);
-      setMeetings(items);
+      const user = getStoredUser();
+      const role = user?.role ?? viewerRole;
+      const userId = user?.id ?? viewerUserId;
+      setMeetings(filterMeetingsForViewer(items, role, userId));
       setStats(nextStats);
     } catch (err) {
       toast.error(
@@ -249,7 +257,7 @@ export function CalendrierPage() {
     } finally {
       setLoading(false);
     }
-  }, [calendarDate, statusFilter, effectiveView]);
+  }, [calendarDate, statusFilter, effectiveView, viewerRole, viewerUserId]);
 
   useEffect(() => {
     void load();
