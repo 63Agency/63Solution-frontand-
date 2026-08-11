@@ -814,8 +814,8 @@ export function MeetingFormModal({
               </div>
               <p className="text-[11px] leading-relaxed text-zinc-500">
                 Mentionne qui (ex. Fixed Meeting) doit aussi voir ce RDV.
-                Admin et Admin WhatsApp voient toujours tous les rendez-vous,
-                y compris ceux déjà créés.
+                Toi (admin) et Admin WhatsApp voyez toujours tous les
+                rendez-vous, y compris ceux déjà créés.
               </p>
               {teamUsersLoading ? (
                 <div className="flex items-center gap-2 py-2 text-xs text-zinc-500">
