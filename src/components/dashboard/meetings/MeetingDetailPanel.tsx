@@ -3,6 +3,7 @@
 import { useState } from "react";
 import {
   Bell,
+  BadgeCheck,
   CheckCircle2,
   Copy,
   ExternalLink,
@@ -11,6 +12,7 @@ import {
   MessageCircle,
   Pencil,
   RefreshCw,
+  Sparkles,
   Trash2,
   UserX,
   Video,
@@ -407,6 +409,24 @@ export function MeetingDetailPanel({
               Statut rapide
             </p>
             <div className="grid grid-cols-1 gap-2">
+              <button
+                type="button"
+                disabled={busy || meeting.status === "confirmed"}
+                onClick={() => void setStatus("confirmed")}
+                className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
+              >
+                <BadgeCheck className="size-4 text-violet-400" />
+                Confirmé
+              </button>
+              <button
+                type="button"
+                disabled={busy || meeting.status === "bon_qualified"}
+                onClick={() => void setStatus("bon_qualified")}
+                className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
+              >
+                <Sparkles className="size-4 text-teal-400" />
+                Bon Qualified
+              </button>
               <button
                 type="button"
                 disabled={busy || meeting.status === "done"}
