@@ -2,8 +2,7 @@
 
 ## Objectif
 
-Quand **admin** crée / édite un rendez-vous, il **mentionne** quels utilisateurs (`fixed_meeting`, etc.) doivent aussi voir ce RDV.  
-(`admin_whatsapp` ne voit pas la section de mention.)
+Quand **admin** ou **admin_whatsapp** crée / édite un rendez-vous, ils **mentionnent** quels utilisateurs (`fixed_meeting`, etc.) doivent aussi voir ce RDV.
 
 Exemple :
 
@@ -87,8 +86,8 @@ meeting visible ⇔ currentUserId ∈ assignedUserIds
 
 | Rôle | Mentionner l’équipe (UI) | Voir les RDV |
 |------|--------------------------|--------------|
-| `admin` | **oui** (section « Visible pour l’équipe ») | **tous** |
-| `admin_whatsapp` | non | **tous** |
+| `admin` | oui | **tous** |
+| `admin_whatsapp` | **oui** | **tous** |
 | `fixed_meeting` | non | seulement s’il est dans `assignedUserIds` |
 
 À la création par `fixed_meeting` : Nest assigne automatiquement `[creatorId]`.
@@ -136,4 +135,4 @@ CREATE TABLE meeting_assignees (
 - Filtre client de secours : `filterMeetingsForViewer`  
 - Admin / Admin WhatsApp : affichent tout ce que l’API renvoie  
 - `fixed_meeting` : filtre local sur `assignedUserIds`  
-- Formulaire : section « Visible pour l’équipe » **admin uniquement**
+- Formulaire : section « Visible pour l’équipe » pour **admin** + **admin_whatsapp**
