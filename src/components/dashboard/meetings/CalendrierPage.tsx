@@ -22,6 +22,7 @@ import { format, getDay, parse, startOfWeek } from "date-fns";
 import { fr } from "date-fns/locale";
 import { toast } from "sonner";
 import {
+  canSeeAllMeetings,
   canSendMeetingReminder,
   isFullAdminRole,
 } from "@/lib/auth/roles";
@@ -37,7 +38,15 @@ import {
   calendarRangeIso,
   casablancaDayKey,
 } from "@/lib/meetings/meeting-datetime";
-import { filterMeetingsForViewer } from "@/lib/meetings/meeting-visibility";
+import {
+  filterMeetingsForViewer,
+  meetingAssignedUserIds,
+} from "@/lib/meetings/meeting-visibility";
+import {
+  fetchMeetingAssignableUsers,
+  teamUserDisplayName,
+} from "@/lib/settings/backend-settings";
+import type { TeamUser } from "@/lib/settings/settings-types";
 import {
   DEFAULT_MEETING_DURATION_MINUTES,
   MEETING_STATUS_COLORS,
@@ -121,6 +130,9 @@ export function CalendrierPage() {
   const [canSendReminder, setCanSendReminder] = useState(false);
   const [viewerRole, setViewerRole] = useState("");
   const [viewerUserId, setViewerUserId] = useState<string | null>(null);
+  const [canFilterByMember, setCanFilterByMember] = useState(false);
+  const [teamUsers, setTeamUsers] = useState<TeamUser[]>([]);
+  const [assigneeFilter, setAssigneeFilter] = useState<"all" | string>("all");
   const [isMobile, setIsMobile] = useState(false);
   const [blockedDays, setBlockedDays] = useState<BlockedDay[]>([]);
   const [blockedDaysOpen, setBlockedDaysOpen] = useState(false);
@@ -137,6 +149,21 @@ export function CalendrierPage() {
     setCanSendReminder(canSendMeetingReminder(role));
     setViewerRole(role);
     setViewerUserId(user?.id ?? null);
+    const canFilter = canSeeAllMeetings(role);
+    setCanFilterByMember(canFilter);
+    if (!canFilter) return;
+
+    let cancelled = false;
+    void fetchMeetingAssignableUsers()
+      .then((users) => {
+        if (!cancelled) setTeamUsers(users);
+      })
+      .catch(() => {
+        if (!cancelled) setTeamUsers([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -296,10 +323,19 @@ export function CalendrierPage() {
 
     const filtered = meetings.filter((m) => {
       const key = casablancaDayKey(m.meetingDate);
-      if (dayFilter === "today") return key === today;
-      if (dayFilter === "tomorrow") return key === tomorrow;
-      if (dayFilter === "date") return key === customDate;
-      if (dayFilter === "week") return key >= today && key < weekEndKey;
+      if (dayFilter === "today" && key !== today) return false;
+      if (dayFilter === "tomorrow" && key !== tomorrow) return false;
+      if (dayFilter === "date" && key !== customDate) return false;
+      if (dayFilter === "week" && !(key >= today && key < weekEndKey)) {
+        return false;
+      }
+      if (
+        canFilterByMember &&
+        assigneeFilter !== "all" &&
+        !meetingAssignedUserIds(m).includes(assigneeFilter)
+      ) {
+        return false;
+      }
       return true;
     });
 
@@ -308,7 +344,7 @@ export function CalendrierPage() {
         new Date(a.meetingDate).getTime() - new Date(b.meetingDate).getTime();
       return listSortAsc ? diff : -diff;
     });
-  }, [meetings, dayFilter, customDate, listSortAsc]);
+  }, [meetings, dayFilter, customDate, listSortAsc, canFilterByMember, assigneeFilter]);
 
   const rbcView: View = effectiveView === "week" ? "week" : "month";
 
@@ -645,6 +681,10 @@ export function CalendrierPage() {
             }}
             onToggleSort={() => setListSortAsc((v) => !v)}
             onSelect={setSelected}
+            canFilterByMember={canFilterByMember}
+            teamUsers={teamUsers}
+            assigneeFilter={assigneeFilter}
+            onAssigneeFilterChange={setAssigneeFilter}
           />
         ) : null}
       </div>
@@ -712,6 +752,10 @@ const MeetingsFilteredTable = forwardRef<
     onCustomDateChange: (value: string) => void;
     onToggleSort: () => void;
     onSelect: (m: Meeting) => void;
+    canFilterByMember?: boolean;
+    teamUsers?: TeamUser[];
+    assigneeFilter?: "all" | string;
+    onAssigneeFilterChange?: (value: "all" | string) => void;
   }
 >(function MeetingsFilteredTable(
   {
@@ -724,6 +768,10 @@ const MeetingsFilteredTable = forwardRef<
     onCustomDateChange,
     onToggleSort,
     onSelect,
+    canFilterByMember = false,
+    teamUsers = [],
+    assigneeFilter = "all",
+    onAssigneeFilterChange,
   },
   ref,
 ) {
@@ -763,7 +811,7 @@ const MeetingsFilteredTable = forwardRef<
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [dayFilter, customDate, meetings.length]);
+  }, [dayFilter, customDate, meetings.length, assigneeFilter]);
 
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
@@ -823,6 +871,23 @@ const MeetingsFilteredTable = forwardRef<
               onChange={(e) => onCustomDateChange(e.target.value)}
               className="border border-zinc-700 bg-zinc-950 px-3 py-2 font-mono text-sm text-zinc-200 outline-none focus:border-zinc-500"
             />
+          ) : null}
+          {canFilterByMember ? (
+            <select
+              value={assigneeFilter}
+              onChange={(e) =>
+                onAssigneeFilterChange?.(e.target.value as "all" | string)
+              }
+              className="rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-emerald-500"
+              aria-label="Filtrer par membre de l'équipe"
+            >
+              <option value="all">Toute l&apos;équipe</option>
+              {teamUsers.map((user) => (
+                <option key={user.id} value={user.id}>
+                  {teamUserDisplayName(user)}
+                </option>
+              ))}
+            </select>
           ) : null}
         </div>
       </div>

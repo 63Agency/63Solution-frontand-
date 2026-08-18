@@ -123,6 +123,7 @@ CREATE TABLE meeting_assignees (
 2. **GET /meetings** :  
    - si rôle `admin` ou `admin_whatsapp` → **aucun filtre** (tous les RDV)  
    - si rôle `fixed_meeting` → filtre `userId IN assignedUserIds` (exclure legacy vides)  
+   - optionnel : `GET /meetings?assignedUserId=<uuid>` pour filtrer côté serveur (le front filtre déjà en local)  
 3. Même règle pour `/today`, `/upcoming`, stats  
 4. Autoriser `admin` + `admin_whatsapp` à lister les users  
 5. Auto-assign créateur si besoin  
@@ -136,3 +137,4 @@ CREATE TABLE meeting_assignees (
 - Admin / Admin WhatsApp : affichent tout ce que l’API renvoie  
 - `fixed_meeting` : filtre local sur `assignedUserIds`  
 - Formulaire : section « Visible pour l’équipe » pour **admin** + **admin_whatsapp**
+- Tableau calendrier : filtre **par membre** (select Saad / Sara / Bilal) — **admin** + **admin_whatsapp** seulement

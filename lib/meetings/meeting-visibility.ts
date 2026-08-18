@@ -1,6 +1,11 @@
 import { canSeeAllMeetings, isFixedMeetingRole } from "../auth/roles";
 import type { Meeting } from "./types";
 
+export function meetingAssignedUserIds(meeting: Meeting): string[] {
+  if (meeting.assignedUserIds?.length) return meeting.assignedUserIds;
+  return (meeting.assignees ?? []).map((a) => a.userId).filter(Boolean);
+}
+
 /**
  * Filtre client des RDV selon le rôle.
  * - admin / admin_whatsapp → tous les RDV (legacy inclus)
@@ -14,11 +19,5 @@ export function filterMeetingsForViewer(
   if (canSeeAllMeetings(role)) return meetings;
   if (!isFixedMeetingRole(role) || !userId) return [];
 
-  return meetings.filter((m) => {
-    const ids =
-      m.assignedUserIds?.length > 0
-        ? m.assignedUserIds
-        : (m.assignees ?? []).map((a) => a.userId);
-    return ids.includes(userId);
-  });
+  return meetings.filter((m) => meetingAssignedUserIds(m).includes(userId));
 }
