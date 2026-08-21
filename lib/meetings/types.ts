@@ -9,6 +9,22 @@ export const MEETING_STATUSES = [
 
 export type MeetingStatus = (typeof MEETING_STATUSES)[number];
 
+/** Titres RDV autorisés (liste déroulante — plus de saisie libre). */
+export const MEETING_TITLE_OPTIONS = [
+  "Audit Performance Marketing",
+  "Audit Performance Marketing présentiel",
+  "Audit Performance Marketing online",
+] as const;
+
+export type MeetingTitleOption = (typeof MEETING_TITLE_OPTIONS)[number];
+
+export const DEFAULT_MEETING_TITLE: MeetingTitleOption =
+  MEETING_TITLE_OPTIONS[0];
+
+export function isMeetingTitleOption(value: string): value is MeetingTitleOption {
+  return (MEETING_TITLE_OPTIONS as readonly string[]).includes(value);
+}
+
 /** Offsets avant le rendez-vous : 2 jours, 24 heures, 2 heures. */
 export const MEETING_REMINDER_OFFSETS = ["2d", "24h", "2h"] as const;
 export type MeetingReminderOffset = (typeof MEETING_REMINDER_OFFSETS)[number];

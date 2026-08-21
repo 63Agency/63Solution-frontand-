@@ -32,10 +32,13 @@ import {
 import { isBlockedDay, getBlockedDay } from "@/lib/meetings/blocked-days";
 import {
   DEFAULT_MEETING_DURATION_MINUTES,
+  DEFAULT_MEETING_TITLE,
   MEETING_DURATION_OPTIONS,
   MEETING_STATUSES,
   MEETING_STATUS_LABELS,
+  MEETING_TITLE_OPTIONS,
   defaultRemindersConfig,
+  isMeetingTitleOption,
   type Meeting,
   type MeetingMember,
   type MeetingRemindersConfig,
@@ -101,7 +104,7 @@ const emptyForm = (prefillDate?: Date | null): FormState => {
     }
   }
   return {
-    title: "",
+    title: DEFAULT_MEETING_TITLE,
     date,
     time,
     durationMinutes: DEFAULT_MEETING_DURATION_MINUTES,
@@ -598,13 +601,21 @@ export function MeetingFormModal({
             <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
               Titre *
             </span>
-            <input
+            <select
               value={form.title}
               onChange={(e) => setField("title", e.target.value)}
               required
-              className="mt-1.5 w-full rounded-xl border border-zinc-700 bg-zinc-950/80 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30"
-              placeholder="Ex. Appel découverte"
-            />
+              className="mt-1.5 w-full rounded-xl border border-zinc-700 bg-zinc-950/80 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30"
+            >
+              {MEETING_TITLE_OPTIONS.map((option) => (
+                <option key={option} value={option}>
+                  {option}
+                </option>
+              ))}
+              {form.title && !isMeetingTitleOption(form.title) ? (
+                <option value={form.title}>{form.title} (ancien)</option>
+              ) : null}
+            </select>
           </label>
 
           <div className="grid gap-4 sm:grid-cols-3">
