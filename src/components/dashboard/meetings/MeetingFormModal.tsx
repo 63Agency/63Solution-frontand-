@@ -16,7 +16,7 @@ import {
   canAssignMeetingVisibility,
   roleDisplayLabel,
 } from "@/lib/auth/roles";
-import { fetchLeads } from "@/lib/leads/api-leads";
+import { fetchLeads, fetchLeadById } from "@/lib/leads/api-leads";
 import { cleanLeadDisplayName } from "@/lib/leads/phone-extract";
 import type { ClickUpLead } from "@/lib/leads/types";
 import {
@@ -82,7 +82,7 @@ function leadToMember(lead: ClickUpLead): MeetingMember {
     leadId: lead.id,
     name,
     phone: lead.phone?.trim() || null,
-    email: null,
+    email: lead.email?.trim() || null,
   };
 }
 
@@ -345,17 +345,64 @@ export function MeetingFormModal({
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const selectLead = (lead: ClickUpLead) => {
+  const applyLeadToContact = (lead: ClickUpLead) => {
     const name = cleanLeadDisplayName(lead.name) || lead.name;
+    const phone = lead.phone?.trim() ?? "";
+    const email = lead.email?.trim() ?? "";
     setForm((prev) => ({
       ...prev,
       leadId: lead.id,
       contactName: name,
-      contactPhone: lead.phone ?? "",
+      contactPhone: phone,
+      contactEmail: email,
       manualContact: false,
       members: prev.members.filter((m) => m.leadId !== lead.id),
+      reminders: defaultRemindersConfig(Boolean(phone), Boolean(email)),
     }));
     setLeadQuery(name);
+    setLeadPickerOpen(false);
+  };
+
+  const selectLead = (lead: ClickUpLead) => {
+    if (lead.email?.trim()) {
+      applyLeadToContact(lead);
+      return;
+    }
+    applyLeadToContact(lead);
+    void fetchLeadById(lead.id)
+      .then((full) => {
+        if (full.email?.trim() || full.phone?.trim()) {
+          applyLeadToContact({ ...lead, ...full });
+        }
+      })
+      .catch(() => {
+        /* garde les champs déjà remplis depuis la liste */
+      });
+  };
+
+  const toggleManualContact = () => {
+    setForm((prev) => {
+      if (prev.manualContact) {
+        return {
+          ...prev,
+          manualContact: false,
+          leadId: "",
+          contactName: "",
+          contactPhone: "",
+          contactEmail: "",
+        };
+      }
+      return {
+        ...prev,
+        manualContact: true,
+        leadId: "",
+        contactName: "",
+        contactPhone: "",
+        contactEmail: "",
+        reminders: defaultRemindersConfig(true, true),
+      };
+    });
+    setLeadQuery("");
     setLeadPickerOpen(false);
   };
 
@@ -698,13 +745,7 @@ export function MeetingFormModal({
             </div>
             <button
               type="button"
-              onClick={() =>
-                setForm((prev) => ({
-                  ...prev,
-                  manualContact: !prev.manualContact,
-                  leadId: prev.manualContact ? prev.leadId : "",
-                }))
-              }
+              onClick={toggleManualContact}
               className="shrink-0 text-xs text-emerald-400 hover:text-emerald-300"
             >
               {form.manualContact ? "Choisir un lead" : "Saisir manuellement"}
@@ -721,11 +762,15 @@ export function MeetingFormModal({
                     const q = e.target.value;
                     setLeadQuery(q);
                     setLeadPickerOpen(true);
-                    setForm((prev) => ({
-                      ...prev,
-                      contactName: q,
-                      leadId: "",
-                    }));
+                    if (form.leadId) {
+                      setForm((prev) => ({
+                        ...prev,
+                        leadId: "",
+                        contactName: "",
+                        contactPhone: "",
+                        contactEmail: "",
+                      }));
+                    }
                   }}
                   onFocus={() => setLeadPickerOpen(true)}
                   placeholder="Rechercher un lead (nom ou téléphone)…"
@@ -770,6 +815,7 @@ export function MeetingFormModal({
                             </span>
                             <span className="block truncate font-mono text-[11px] text-zinc-500">
                               {lead.phone || "Sans téléphone"}
+                              {lead.email ? ` · ${lead.email}` : ""}
                               {lead.list_name ? ` · ${lead.list_name}` : ""}
                             </span>
                           </span>
@@ -781,14 +827,51 @@ export function MeetingFormModal({
               ) : null}
             </div>
           ) : (
-            <input
-              value={form.contactName}
-              onChange={(e) => setField("contactName", e.target.value)}
-              placeholder="Nom du contact"
-              className="w-full rounded-xl border border-zinc-700 bg-zinc-950/80 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30"
-            />
+            <div className="space-y-4 rounded-xl border border-zinc-800 bg-zinc-950/40 p-3">
+              <p className="text-[11px] text-zinc-500">
+                Saisie manuelle — renseigne le nom et au moins un téléphone ou
+                un email.
+              </p>
+              <label className="block">
+                <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+                  Nom du contact *
+                </span>
+                <input
+                  value={form.contactName}
+                  onChange={(e) => setField("contactName", e.target.value)}
+                  placeholder="Nom du contact"
+                  className="mt-1.5 w-full rounded-xl border border-zinc-700 bg-zinc-950/80 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30"
+                />
+              </label>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block">
+                  <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+                    Téléphone
+                  </span>
+                  <input
+                    value={form.contactPhone}
+                    onChange={(e) => setField("contactPhone", e.target.value)}
+                    placeholder="+212 6 …"
+                    className="mt-1.5 w-full rounded-xl border border-zinc-700 bg-zinc-950/80 px-3 py-2.5 font-mono text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30"
+                  />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
+                    Email
+                  </span>
+                  <input
+                    type="email"
+                    value={form.contactEmail}
+                    onChange={(e) => setField("contactEmail", e.target.value)}
+                    placeholder="contact@exemple.com"
+                    className="mt-1.5 w-full rounded-xl border border-zinc-700 bg-zinc-950/80 px-3 py-2.5 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/30"
+                  />
+                </label>
+              </div>
+            </div>
           )}
 
+          {!form.manualContact ? (
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block">
               <span className="text-xs font-medium uppercase tracking-wider text-zinc-500">
@@ -814,6 +897,7 @@ export function MeetingFormModal({
               />
             </label>
           </div>
+          ) : null}
 
           {canAssignUsers ? (
             <div className="space-y-2 rounded-xl border border-sky-500/20 bg-sky-500/5 p-3">

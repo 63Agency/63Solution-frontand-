@@ -46,8 +46,19 @@ export function cleanLeadDisplayName(raw: string): string {
   name = name.replace(/\s*[-–—]\s*\+?\d[\d\s().-]{8,}\s*$/u, "");
   name = name.replace(/\s*\+\d[\d\s().-]{8,}(?:[-\s].*)?$/u, "");
   name = name.replace(/\s*[-–—_]\s*\d{10,12}(?:[^0-9]|$).*/u, "");
+  name = name.replace(
+    /\s*[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\s*$/u,
+    "",
+  );
   name = name.replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, "");
   name = name.replace(/[\s\-–—_|]+$/g, "").trim();
 
   return name || "Sans nom";
+}
+
+/** Extrait un email depuis le nom / texte lead ClickUp si présent. */
+export function extractEmailFromLeadText(text: string): string | null {
+  if (!text?.trim()) return null;
+  const match = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  return match ? match[0].toLowerCase() : null;
 }

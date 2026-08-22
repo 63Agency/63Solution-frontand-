@@ -1,9 +1,10 @@
-import { extractPhoneFromLeadText } from "./phone-extract";
+import { extractEmailFromLeadText, extractPhoneFromLeadText } from "./phone-extract";
 
 export type ClickUpLead = {
   id: string;
   name: string;
   phone: string | null;
+  email: string | null;
   status: string;
   list_id: string | null;
   list_name: string;
@@ -61,6 +62,18 @@ export function mapClickUpLeadRow(row: Record<string, unknown>): ClickUpLead {
     phone = extractPhoneFromLeadText(name);
   }
 
+  const emailRaw =
+    row.email ??
+    row.contact_email ??
+    row.contactEmail ??
+    row.mail ??
+    null;
+  let email =
+    emailRaw == null || emailRaw === "" ? null : String(emailRaw).trim().toLowerCase();
+  if (!email && name) {
+    email = extractEmailFromLeadText(name);
+  }
+
   const listIdRaw = row.list_id ?? row.listId ?? null;
   const listId =
     listIdRaw == null || listIdRaw === "" ? null : String(listIdRaw).trim();
@@ -69,6 +82,7 @@ export function mapClickUpLeadRow(row: Record<string, unknown>): ClickUpLead {
     id: String(row.id ?? ""),
     name,
     phone,
+    email,
     status: String(row.status ?? "unknown").trim() || "unknown",
     list_id: listId,
     list_name: String(row.list_name ?? row.listName ?? "").trim(),

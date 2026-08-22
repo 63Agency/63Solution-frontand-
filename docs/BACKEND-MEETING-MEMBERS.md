@@ -15,6 +15,11 @@ Accessible aux rôles **`admin`** et **`admin_whatsapp`**.
 
 Les deux listes viennent de `GET /leads` — **pas** de la page Clients (`/clients`), **pas** de `/users`.
 
+### Email lead (contact principal)
+
+Sur `GET /leads` et `GET /leads/:id`, renvoyer **`email`** (ou `contact_email`) pour chaque lead.  
+Le front remplit `contactEmail` à la sélection du lead (sinon saisie manuelle).
+
 ---
 
 ## Payload create / update
