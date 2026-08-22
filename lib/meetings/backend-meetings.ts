@@ -24,6 +24,10 @@ import {
   MEETING_REMINDER_OFFSETS,
   MEETING_STATUSES,
 } from "./types";
+import {
+  sanitizeCreateMeetingPayload,
+  sanitizeUpdateMeetingPayload,
+} from "./meeting-payload";
 
 function buildAuthHeaders(): Record<string, string> {
   const token = getStoredAccessToken();
@@ -456,11 +460,12 @@ export async function createMeeting(
   payload: CreateMeetingPayload,
 ): Promise<Meeting> {
   const base = requireApiBase();
+  const body = sanitizeCreateMeetingPayload(payload);
   const res = await fetch(`${base}/meetings`, {
     method: "POST",
     headers: buildAuthHeaders(),
     credentials: "include",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
   if (!res.ok) return parseApiError(res, "POST /meetings");
   const meeting = parseMeeting(await res.json().catch(() => null));
@@ -473,11 +478,12 @@ export async function updateMeeting(
   payload: UpdateMeetingPayload,
 ): Promise<Meeting> {
   const base = requireApiBase();
+  const body = sanitizeUpdateMeetingPayload(payload);
   const res = await fetch(`${base}/meetings/${encodeURIComponent(id)}`, {
     method: "PATCH",
     headers: buildAuthHeaders(),
     credentials: "include",
-    body: JSON.stringify(payload),
+    body: JSON.stringify(body),
   });
   if (!res.ok) return parseApiError(res, `PATCH /meetings/${id}`);
   const meeting = parseMeeting(await res.json().catch(() => null));

@@ -20,6 +20,13 @@ Les deux listes viennent de `GET /leads` — **pas** de la page Clients (`/clien
 Sur `GET /leads` et `GET /leads/:id`, renvoyer **`email`** (ou `contact_email`) pour chaque lead.  
 Le front remplit `contactEmail` à la sélection du lead (sinon saisie manuelle).
 
+### `id` lead pour meetings
+
+`POST /meetings` attend **`leadId` = UUID interne** (`leads.id` en base Nest), **pas** l’id tâche ClickUp seul.
+
+Sur `GET /leads`, renvoyer dans **`id`** l’UUID interne. Optionnel : `clickup_task_id` à part.  
+Si seul ClickUp id est renvoyé comme `id`, le front omet `leadId` et envoie `contactName` / `contactPhone` / `contactEmail` (évite 400 « leadId invalide »).
+
 ---
 
 ## Payload create / update

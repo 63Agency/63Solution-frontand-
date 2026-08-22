@@ -53,6 +53,36 @@ export type LeadsSyncResult = {
   synced: number;
 };
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isUuid(value: string): boolean {
+  return UUID_RE.test(value.trim());
+}
+
+/** Préfère l’UUID interne Nest (meetings.leadId) ; fallback id ClickUp. */
+function pickLeadApiId(row: Record<string, unknown>): string {
+  const candidates = [
+    row.id,
+    row.lead_id,
+    row.leadId,
+    row.uuid,
+    row.internal_id,
+    row.clickup_task_id,
+    row.clickUpTaskId,
+    row.task_id,
+  ];
+  for (const raw of candidates) {
+    const value = String(raw ?? "").trim();
+    if (value && isUuid(value)) return value;
+  }
+  for (const raw of candidates) {
+    const value = String(raw ?? "").trim();
+    if (value) return value;
+  }
+  return "";
+}
+
 export function mapClickUpLeadRow(row: Record<string, unknown>): ClickUpLead {
   const name = String(row.name ?? row.full_name ?? row.lead_name ?? "").trim();
   const phoneRaw = row.phone ?? row.phone_number ?? row.telephone ?? null;
@@ -74,12 +104,14 @@ export function mapClickUpLeadRow(row: Record<string, unknown>): ClickUpLead {
     email = extractEmailFromLeadText(name);
   }
 
+  const id = pickLeadApiId(row);
+
   const listIdRaw = row.list_id ?? row.listId ?? null;
   const listId =
     listIdRaw == null || listIdRaw === "" ? null : String(listIdRaw).trim();
 
   return {
-    id: String(row.id ?? ""),
+    id,
     name,
     phone,
     email,
