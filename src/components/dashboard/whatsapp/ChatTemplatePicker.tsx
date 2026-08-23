@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Loader2, SendHorizontal, X } from "lucide-react";
 import { toast } from "sonner";
 import { getStoredAccessToken } from "@/lib/auth/backend-login";
-import { sendBulkWhatsAppMessages } from "@/lib/whatsapp/backend-whatsapp";
+import { sendConversationWhatsAppTemplate } from "@/lib/whatsapp/send-conversation-template";
 import {
   formatWhatsAppSendError,
   isWhatsAppWindowClosedError,
@@ -100,12 +100,11 @@ export function ChatTemplatePicker({
     }
     setSending(true);
     try {
-      const res = await sendBulkWhatsAppMessages({
-        phoneNumbers: [phoneNumber],
+      const res = await sendConversationWhatsAppTemplate({
+        phoneNumber,
         templateName: selected.name,
         templateLanguage: "fr",
         variable1,
-        recipients: [{ phoneNumber, variable1 }],
       });
       if (res.failed > 0) {
         const firstErr = res.results.find((r) => !r.success)?.error ?? "";

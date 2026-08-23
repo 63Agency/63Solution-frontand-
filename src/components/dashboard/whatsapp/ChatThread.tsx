@@ -33,6 +33,12 @@ import {
   fetchWhatsAppMessages,
   sendWhatsAppMessage,
 } from "@/lib/whatsapp/backend-whatsapp";
+import { isWhatsAppSessionWindowClosed } from "@/lib/whatsapp/conversation-window";
+import {
+  getGreetingTemplateName,
+  GREETING_TEMPLATE_LANGUAGE,
+} from "@/lib/whatsapp/greeting-template";
+import { sendConversationWhatsAppTemplate } from "@/lib/whatsapp/send-conversation-template";
 import { mergeMessageStatus } from "@/lib/whatsapp/message-status";
 import {
   formatWhatsAppSendError,
@@ -207,8 +213,9 @@ export function ChatThread({
     kind: MediaPreviewKind;
   } | null>(null);
   const [previewSending, setPreviewSending] = useState(false);
-  const [sessionWindowClosed, setSessionWindowClosed] = useState(false);
+  const [windowClosedOverride, setWindowClosedOverride] = useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
+  const [sendingGreeting, setSendingGreeting] = useState(false);
 
   const router = useRouter();
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -222,7 +229,6 @@ export function ChatThread({
 
   const conversationId = conversation?.id ?? null;
   const hasDraft = draft.trim().length > 0;
-  const composerLocked = sessionWindowClosed;
 
   const lastInboundAt = useMemo(() => {
     let latest = 0;
@@ -234,12 +240,18 @@ export function ChatThread({
     return latest;
   }, [messages]);
 
+  const windowClosedByTime = isWhatsAppSessionWindowClosed(lastInboundAt);
+  const composerLocked = windowClosedByTime || windowClosedOverride;
+  const greetingVariable1 =
+    conversationDisplayName(conversation?.contactName, conversation?.phoneNumber) ||
+    "Client";
+
   const handleSendError = (raw: unknown) => {
     const msg = formatWhatsAppSendError(
       raw instanceof Error ? raw.message : "Envoi impossible.",
     );
     if (isWhatsAppWindowClosedError(msg)) {
-      setSessionWindowClosed(true);
+      setWindowClosedOverride(true);
       toast.error(WINDOW_CLOSED_TOAST);
       return;
     }
@@ -250,6 +262,35 @@ export function ChatThread({
     if (!conversation) return;
     prepareBulkSendForContact(conversation.phoneNumber, conversation.contactName);
     router.push(BULK_SEND_PATH);
+  };
+
+  const handleSendBonjour = async () => {
+    if (!conversation || sendingGreeting) return;
+    setSendingGreeting(true);
+    try {
+      const res = await sendConversationWhatsAppTemplate({
+        phoneNumber: conversation.phoneNumber,
+        templateName: getGreetingTemplateName(),
+        templateLanguage: GREETING_TEMPLATE_LANGUAGE,
+        variable1: greetingVariable1,
+      });
+      if (res.failed > 0) {
+        const firstErr = res.results.find((r) => !r.success)?.error ?? "";
+        const msg = formatWhatsAppSendError(firstErr);
+        toast.error(msg || "Échec de l'envoi du template Bonjour.");
+        return;
+      }
+      toast.success("Template Bonjour envoyé.");
+      void loadMessages(true);
+      onConversationUpdate();
+    } catch (e) {
+      const msg = formatWhatsAppSendError(
+        e instanceof Error ? e.message : "Envoi impossible.",
+      );
+      toast.error(msg);
+    } finally {
+      setSendingGreeting(false);
+    }
   };
 
   const matchIds = useMemo(() => {
@@ -321,17 +362,9 @@ export function ChatThread({
 
   useEffect(() => {
     void loadMessages();
-    setSessionWindowClosed(false);
+    setWindowClosedOverride(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId]);
-
-  useEffect(() => {
-    if (!sessionWindowClosed || !lastInboundAt) return;
-    const ageMs = Date.now() - lastInboundAt;
-    if (ageMs < 24 * 60 * 60 * 1000) {
-      setSessionWindowClosed(false);
-    }
-  }, [lastInboundAt, sessionWindowClosed]);
 
   useEffect(() => {
     if (pollTick == null || !conversationId) return;
@@ -646,7 +679,7 @@ export function ChatThread({
         uploadError: errMessage,
       });
       if (isWhatsAppWindowClosedError(errMessage)) {
-        setSessionWindowClosed(true);
+        setWindowClosedOverride(true);
         toast.error(WINDOW_CLOSED_TOAST);
       }
     }
@@ -992,9 +1025,25 @@ export function ChatThread({
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() => setTemplatePickerOpen(true)}
-                    className="rounded-full px-3 py-1.5 text-[12px] font-medium"
+                    onClick={() => void handleSendBonjour()}
+                    disabled={sendingGreeting}
+                    className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-medium disabled:opacity-50"
                     style={{ backgroundColor: "#00a884", color: "#111b21" }}
+                  >
+                    {sendingGreeting ? (
+                      <Loader2 className="size-3.5 animate-spin" aria-hidden />
+                    ) : null}
+                    Envoyer Bonjour
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setTemplatePickerOpen(true)}
+                    disabled={sendingGreeting}
+                    className="rounded-full px-3 py-1.5 text-[12px] font-medium ring-1 ring-inset ring-[#8696a0]/40 disabled:opacity-50"
+                    style={{
+                      color: "#e9edef",
+                      backgroundColor: "rgba(255,255,255,0.06)",
+                    }}
                   >
                     Choisir un template
                   </button>
@@ -1247,7 +1296,6 @@ export function ChatThread({
         contactName={conversation.contactName}
         onClose={() => setTemplatePickerOpen(false)}
         onSent={() => {
-          setSessionWindowClosed(false);
           void loadMessages(true);
           onConversationUpdate();
         }}
