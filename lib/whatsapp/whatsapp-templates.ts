@@ -10,6 +10,12 @@ export function formatTemplatePreview(body: string): string {
   return body.replace(/\{\{1\}\}/g, "[Nom du contact]");
 }
 
+/** true si le body Meta contient la variable {{1}}. */
+export function templateBodyHasVariable1(body?: string | null): boolean {
+  if (!body || typeof body !== "string") return false;
+  return /\{\{1\}\}/.test(body);
+}
+
 function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }

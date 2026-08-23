@@ -1,11 +1,14 @@
 import { sendBulkWhatsAppMessages } from "./backend-whatsapp";
+import { templateBodyHasVariable1 } from "./whatsapp-templates";
 import type { BulkWhatsAppSendResult } from "./types";
 
 export type SendConversationTemplateOptions = {
   phoneNumber: string;
   templateName: string;
   templateLanguage?: string;
-  /** Remplace {{1}} dans le body du template. */
+  /** Body du template (Meta) — sert à détecter si {{1}} est requis. */
+  templateBody?: string;
+  /** Remplace {{1}} — ignoré si le template n'a pas de variable. */
   variable1?: string;
 };
 
@@ -16,13 +19,17 @@ export async function sendConversationWhatsAppTemplate(
   const phoneNumber = options.phoneNumber.trim();
   const templateName = options.templateName.trim();
   const templateLanguage = options.templateLanguage?.trim() || "fr";
-  const variable1 = options.variable1?.trim() || "Client";
+  const needsVariable1 = templateBodyHasVariable1(options.templateBody);
+  const variable1 = needsVariable1
+    ? options.variable1?.trim() || "Client"
+    : undefined;
 
   return sendBulkWhatsAppMessages({
     phoneNumbers: [phoneNumber],
     templateName,
     templateLanguage,
-    variable1,
-    recipients: [{ phoneNumber, variable1 }],
+    ...(variable1
+      ? { variable1, recipients: [{ phoneNumber, variable1 }] }
+      : { components: [] }),
   });
 }

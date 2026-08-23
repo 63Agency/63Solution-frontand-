@@ -10,6 +10,7 @@ import {
   isWhatsAppWindowClosedError,
   WINDOW_CLOSED_TOAST,
 } from "@/lib/whatsapp/whatsapp-send-errors";
+import { templateBodyHasVariable1 } from "@/lib/whatsapp/whatsapp-templates";
 import { cn } from "@/src/lib/utils";
 import { conversationDisplayName } from "./whatsapp-utils";
 
@@ -40,13 +41,15 @@ export function ChatTemplatePicker({
   const [selectedId, setSelectedId] = useState("");
 
   const selected = templates.find((t) => t.id === selectedId) ?? null;
-  const variable1 =
+  const contactLabel =
     conversationDisplayName(contactName, phoneNumber) || "Client";
+  const selectedNeedsVariable1 = templateBodyHasVariable1(selected?.body);
 
   const preview = useMemo(() => {
     if (!selected?.body) return "";
-    return selected.body.replace(/\{\{1\}\}/g, variable1);
-  }, [selected?.body, variable1]);
+    if (!templateBodyHasVariable1(selected.body)) return selected.body;
+    return selected.body.replace(/\{\{1\}\}/g, contactLabel);
+  }, [selected?.body, contactLabel]);
 
   useEffect(() => {
     if (!open) return;
@@ -104,7 +107,8 @@ export function ChatTemplatePicker({
         phoneNumber,
         templateName: selected.name,
         templateLanguage: "fr",
-        variable1,
+        templateBody: selected.body,
+        ...(selectedNeedsVariable1 ? { variable1: contactLabel } : {}),
       });
       if (res.failed > 0) {
         const firstErr = res.results.find((r) => !r.success)?.error ?? "";

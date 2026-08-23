@@ -242,10 +242,6 @@ export function ChatThread({
 
   const windowClosedByTime = isWhatsAppSessionWindowClosed(lastInboundAt);
   const composerLocked = windowClosedByTime || windowClosedOverride;
-  const greetingVariable1 =
-    conversationDisplayName(conversation?.contactName, conversation?.phoneNumber) ||
-    "Client";
-
   const handleSendError = (raw: unknown) => {
     const msg = formatWhatsAppSendError(
       raw instanceof Error ? raw.message : "Envoi impossible.",
@@ -272,7 +268,6 @@ export function ChatThread({
         phoneNumber: conversation.phoneNumber,
         templateName: getGreetingTemplateName(),
         templateLanguage: GREETING_TEMPLATE_LANGUAGE,
-        variable1: greetingVariable1,
       });
       if (res.failed > 0) {
         const firstErr = res.results.find((r) => !r.success)?.error ?? "";

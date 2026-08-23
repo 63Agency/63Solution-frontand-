@@ -11,8 +11,8 @@ Le front affiche un bouton **« Envoyer Bonjour »** dans la conversation quand 
 ## Comportement front (déjà en place)
 
 1. Bannière jaune + composeur désactivé si fenêtre fermée.
-2. Bouton **« Envoyer Bonjour »** → envoi du template configuré (défaut : `bonjour`, langue `fr`).
-3. Variable `{{1}}` = prénom / nom affiché du contact (sinon « Client »).
+2. Bouton **« Envoyer Bonjour »** → envoi du template configuré (défaut : `just_bonjour`, langue `fr`).
+3. Variable `{{1}}` envoyée **uniquement** si le body du template contient `{{1}}` (ex. `just_bonjour` = texte fixe, **0 paramètre**).
 4. Bouton **« Choisir un template »** → liste complète via `GET /api/whatsapp/templates` (proxy Nest ou WhatChimp).
 
 ### Envoi côté front
@@ -25,10 +25,23 @@ Authorization: Bearer <token>
 Content-Type: application/json
 ```
 
+**Template sans variable** (`just_bonjour`) :
+
 ```json
 {
   "phoneNumbers": ["212612345678"],
-  "templateName": "bonjour",
+  "templateName": "just_bonjour",
+  "templateLanguage": "fr",
+  "components": []
+}
+```
+
+**Template avec `{{1}}`** :
+
+```json
+{
+  "phoneNumbers": ["212612345678"],
+  "templateName": "bonjour_personnalise",
   "templateLanguage": "fr",
   "variable1": "Karim",
   "components": [
@@ -45,16 +58,17 @@ Fallback testé si 404 : `POST /whatsapp/messages/bulk` (même body).
 Variable d’environnement front (optionnelle) :
 
 ```env
-NEXT_PUBLIC_WHATSAPP_GREETING_TEMPLATE=bonjour
+NEXT_PUBLIC_WHATSAPP_GREETING_TEMPLATE=just_bonjour
 ```
 
 ## Ce qu’il faut côté Nest
 
 ### 1. Template Meta approuvé
 
-- Créer / vérifier un template **`bonjour`** (langue **`fr`**) dans Meta Business Manager.
-- Exemple de body : `Bonjour {{1}}, comment puis-je vous aider ?`
+- Template actuel : **`just_bonjour`** (langue **`fr`**) — texte fixe, **sans** `{{1}}`.
+- Exemple body : `Bonjour 👋` / `J'espère que vous allez bien.`
 - Statut **APPROVED** obligatoire.
+- **Ne pas** injecter `variable1` / `components.body.parameters` si le template Meta n'a aucune variable (sinon erreur `#132000`).
 
 ### 2. Endpoint broadcast (recommandé)
 
@@ -92,9 +106,8 @@ POST /whatsapp/conversations/:conversationId/messages/template
 
 ```json
 {
-  "templateName": "bonjour",
-  "templateLanguage": "fr",
-  "variable1": "Karim"
+  "templateName": "just_bonjour",
+  "templateLanguage": "fr"
 }
 ```
 
@@ -111,6 +124,7 @@ Le front utilise aujourd’hui **broadcast** ; cet endpoint simplifierait la tra
 | Cas | Message suggéré |
 |-----|-----------------|
 | Fenêtre fermée + envoi texte libre | `Meta: … message failed: 24 hour window …` |
+| Paramètres en trop (#132000) | `Meta: (#132000) Number of parameters does not match … expected (0)` — ne pas envoyer `variable1` si le template n'a pas de `{{1}}` |
 | Template inconnu / rejeté | `Meta: (#132000) Template name does not exist …` |
 | Numéro invalide | `Meta: (#131030) Recipient phone number not valid …` |
 
@@ -118,8 +132,8 @@ Le front mappe les erreurs contenant `24h` / `template` vers : *« Ce contact n'
 
 ## Checklist backend
 
-1. Template Meta **`bonjour`** (fr) approuvé avec variable `{{1}}` si utilisée.
-2. `POST /whatsapp/broadcast` opérationnel pour un seul numéro + `templateName` + `variable1`.
+1. Template Meta **`just_bonjour`** (fr) approuvé — 0 variable.
+2. `POST /whatsapp/broadcast` opérationnel : `templateName` seul si pas de `{{1}}`, sinon `variable1` + `components`.
 3. Message enregistré en base et visible au prochain `GET .../messages`.
 4. Erreurs Meta exposées dans `results[].error`.
 5. (Optionnel) `POST /whatsapp/conversations/:id/messages/template`.
