@@ -12,6 +12,7 @@ import {
   Loader2,
   Mail,
   RotateCcw,
+  Search,
   Send,
   Square,
   XCircle,
@@ -53,6 +54,14 @@ function personalize(text: string, name: string): string {
 
 function recipientKey(r: EmailRecipient): string {
   return r.email.toLowerCase();
+}
+
+function recipientMatchesSearch(r: EmailRecipient, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (r.name.toLowerCase().includes(q)) return true;
+  if (r.email.toLowerCase().includes(q)) return true;
+  return false;
 }
 
 type MultiSelectFilterProps = {
@@ -318,6 +327,7 @@ export function BulkEmailPage() {
   const [recipients, setRecipients] = useState<EmailRecipient[]>([]);
   const [selectedEmails, setSelectedEmails] = useState<Set<string>>(new Set());
   const [loadingRecipients, setLoadingRecipients] = useState(false);
+  const [search, setSearch] = useState("");
 
   const [subject, setSubject] = useState("Bonjour {{name}}");
   const [htmlBody, setHtmlBody] = useState(
@@ -404,13 +414,28 @@ export function BulkEmailPage() {
     [recipients, selectedEmails],
   );
 
-  const activeFiltersCount =
-    (selectedListId ? 1 : 0) + (selectedStatuses.size > 0 ? 1 : 0);
+  const filteredRecipients = useMemo(
+    () => recipients.filter((r) => recipientMatchesSearch(r, search)),
+    [recipients, search],
+  );
 
-  const listTotalPages = Math.max(1, Math.ceil(recipients.length / PAGE_SIZE));
-  const listSlice = recipients.slice(
-    (listPage - 1) * PAGE_SIZE,
-    listPage * PAGE_SIZE,
+  useEffect(() => {
+    setListPage(1);
+  }, [search]);
+
+  const activeFiltersCount =
+    (selectedListId ? 1 : 0) +
+    (selectedStatuses.size > 0 ? 1 : 0) +
+    (search.trim() ? 1 : 0);
+
+  const listTotalPages = Math.max(
+    1,
+    Math.ceil(filteredRecipients.length / PAGE_SIZE),
+  );
+  const safePage = Math.min(listPage, listTotalPages);
+  const listSlice = filteredRecipients.slice(
+    (safePage - 1) * PAGE_SIZE,
+    safePage * PAGE_SIZE,
   );
 
   const previewName =
@@ -450,6 +475,7 @@ export function BulkEmailPage() {
   const clearFilters = () => {
     setSelectedListId(null);
     setSelectedStatuses(new Set());
+    setSearch("");
   };
 
   const toggleEmail = (email: string) => {
@@ -461,12 +487,24 @@ export function BulkEmailPage() {
     });
   };
 
+  const filteredKeys = useMemo(
+    () => filteredRecipients.map(recipientKey),
+    [filteredRecipients],
+  );
+
+  const allFilteredSelected =
+    filteredKeys.length > 0 && filteredKeys.every((k) => selectedEmails.has(k));
+
   const toggleSelectAll = () => {
-    if (selectedEmails.size === recipients.length) {
-      setSelectedEmails(new Set());
-    } else {
-      setSelectedEmails(new Set(recipients.map(recipientKey)));
-    }
+    setSelectedEmails((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        for (const key of filteredKeys) next.delete(key);
+      } else {
+        for (const key of filteredKeys) next.add(key);
+      }
+      return next;
+    });
   };
 
   const handleSend = async () => {
@@ -511,11 +549,8 @@ export function BulkEmailPage() {
     setConfirmOpen(false);
   };
 
-  const allSelected =
-    recipients.length > 0 && selectedEmails.size === recipients.length;
-
   return (
-    <div className="mx-auto max-w-4xl px-3 py-6 sm:px-6 sm:py-8">
+    <div className="mx-auto max-w-4xl px-3 pb-28 pt-6 sm:px-6 sm:pb-10 sm:pt-8">
       <div className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div className="flex items-start gap-3">
           <Link
@@ -694,7 +729,24 @@ export function BulkEmailPage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
+          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5 pb-6">
+            <div className="mb-4">
+              <div className="relative">
+                <Search
+                  className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-500"
+                  aria-hidden
+                />
+                <input
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Rechercher un client (nom ou email)…"
+                  className="w-full rounded-xl border border-zinc-700 bg-zinc-950 py-2.5 pl-10 pr-4 text-sm text-zinc-100 placeholder:text-zinc-600 focus:border-emerald-600/80 focus:outline-none focus:ring-2 focus:ring-emerald-600/20"
+                  aria-label="Rechercher un client"
+                />
+              </div>
+            </div>
+
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm text-zinc-400">
                 {loadingRecipients ? (
@@ -705,10 +757,13 @@ export function BulkEmailPage() {
                 ) : (
                   <>
                     <span className="font-semibold text-white">
-                      {recipients.length}
-                    </span>{" "}
+                      {filteredRecipients.length}
+                    </span>
+                    {search.trim() && filteredRecipients.length !== recipients.length
+                      ? ` / ${recipients.length}`
+                      : ""}{" "}
                     destinataire
-                    {recipients.length !== 1 ? "s" : ""} avec email
+                    {filteredRecipients.length !== 1 ? "s" : ""} avec email
                     {selectedEmails.size > 0 ? (
                       <>
                         {" · "}
@@ -725,15 +780,17 @@ export function BulkEmailPage() {
               <button
                 type="button"
                 onClick={toggleSelectAll}
-                disabled={loadingRecipients || recipients.length === 0}
+                disabled={loadingRecipients || filteredRecipients.length === 0}
                 className="inline-flex items-center gap-2 rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 disabled:opacity-40"
               >
-                {allSelected ? (
+                {allFilteredSelected ? (
                   <CheckSquare className="size-3.5 text-emerald-400" />
                 ) : (
                   <Square className="size-3.5" />
                 )}
-                {allSelected ? "Tout désélectionner" : "Tout sélectionner"}
+                {allFilteredSelected
+                  ? "Tout désélectionner"
+                  : "Tout sélectionner"}
               </button>
             </div>
 
@@ -745,15 +802,19 @@ export function BulkEmailPage() {
               <p className="py-10 text-center text-sm text-zinc-500">
                 Aucun destinataire avec email pour ces filtres.
               </p>
+            ) : filteredRecipients.length === 0 ? (
+              <p className="py-10 text-center text-sm text-zinc-500">
+                Aucun client ne correspond à « {search.trim()} ».
+              </p>
             ) : (
               <>
-                <div className="overflow-x-auto">
+                <div className="app-scroll max-h-[min(55vh,480px)] overflow-y-auto overscroll-contain rounded-xl border border-zinc-800/80">
                   <table className={TABLE_CLASS}>
-                    <thead>
+                    <thead className="sticky top-0 z-[1] bg-zinc-900">
                       <tr className={THEAD_ROW}>
-                        <th className={cn(TH, "w-10")}> </th>
-                        <th className={TH}>Nom</th>
-                        <th className={TH}>Email</th>
+                        <th className={cn(TH, "w-10 pl-3 pt-2")}> </th>
+                        <th className={cn(TH, "pt-2")}>Nom</th>
+                        <th className={cn(TH, "pt-2")}>Email</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -766,7 +827,7 @@ export function BulkEmailPage() {
                             className={cn(TR, "cursor-pointer")}
                             onClick={() => toggleEmail(key)}
                           >
-                            <td className={TD}>
+                            <td className={cn(TD, "pl-3")}>
                               <input
                                 type="checkbox"
                                 checked={checked}
@@ -789,9 +850,9 @@ export function BulkEmailPage() {
                   </table>
                 </div>
                 <TablePagination
-                  page={listPage}
+                  page={safePage}
                   totalPages={listTotalPages}
-                  totalItems={recipients.length}
+                  totalItems={filteredRecipients.length}
                   itemLabel="destinataires"
                   onPageChange={setListPage}
                 />
@@ -918,7 +979,7 @@ export function BulkEmailPage() {
 
       {/* Footer */}
       {!results ? (
-        <div className="sticky bottom-0 z-10 -mx-3 mt-8 flex items-center justify-between gap-3 border-t border-zinc-800 bg-zinc-950/95 px-3 py-3 backdrop-blur-md sm:static sm:mx-0 sm:mt-8 sm:bg-transparent sm:px-0 sm:py-0 sm:pt-6 sm:backdrop-blur-none">
+        <div className="mt-8 flex items-center justify-between gap-3 border-t border-zinc-800 pt-4">
           <button
             type="button"
             onClick={goBack}
