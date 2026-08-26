@@ -808,9 +808,9 @@ export function BulkEmailPage() {
               </p>
             ) : (
               <>
-                <div className="app-scroll max-h-[min(55vh,480px)] overflow-y-auto overscroll-contain rounded-xl border border-zinc-800/80">
+                <div className="overflow-x-auto rounded-xl border border-zinc-800/80">
                   <table className={TABLE_CLASS}>
-                    <thead className="sticky top-0 z-[1] bg-zinc-900">
+                    <thead>
                       <tr className={THEAD_ROW}>
                         <th className={cn(TH, "w-10 pl-3 pt-2")}> </th>
                         <th className={cn(TH, "pt-2")}>Nom</th>
@@ -842,7 +842,7 @@ export function BulkEmailPage() {
                                 {r.name || "—"}
                               </span>
                             </td>
-                            <td className={TD}>{r.email}</td>
+                            <td className={cn(TD, "pb-3")}>{r.email}</td>
                           </tr>
                         );
                       })}

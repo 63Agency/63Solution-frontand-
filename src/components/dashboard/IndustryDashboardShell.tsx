@@ -723,7 +723,7 @@ export function IndustryDashboardShell({
           {pathname === WHATSAPP_BASE ? null : <DashboardTopBar />}
           <main
             className={
-              isWhatsAppPath(pathname ?? "")
+              pathname === WHATSAPP_BASE
                 ? "flex min-h-0 min-w-0 w-full flex-1 flex-col overflow-hidden bg-zinc-950"
                 : "app-scroll min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain bg-zinc-950"
             }
