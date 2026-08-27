@@ -3,7 +3,9 @@ export const MEETING_STATUSES = [
   "confirmed",
   "bon_qualified",
   "done",
+  "no_answer",
   "cancelled",
+  "reported",
   "no_show",
 ] as const;
 
@@ -199,11 +201,13 @@ export type ListMeetingsQuery = {
 
 export const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
   scheduled: "Planifié",
-  confirmed: "Confirmé",
+  confirmed: "Confirmed",
   bon_qualified: "Bon Qualified",
   done: "Fait",
-  cancelled: "Annulé",
-  no_show: "No-show",
+  no_answer: "No answer",
+  cancelled: "Cancelled",
+  reported: "Reported",
+  no_show: "No show",
 };
 
 export const MEETING_STATUS_COLORS: Record<
@@ -234,11 +238,23 @@ export const MEETING_STATUS_COLORS: Record<
     border: "border-emerald-500/40",
     calendar: "#10b981",
   },
+  no_answer: {
+    bg: "bg-zinc-500/20",
+    text: "text-zinc-300",
+    border: "border-zinc-500/35",
+    calendar: "#71717a",
+  },
   cancelled: {
     bg: "bg-red-500/15",
     text: "text-red-300",
     border: "border-red-500/30",
     calendar: "#ef4444",
+  },
+  reported: {
+    bg: "bg-orange-500/15",
+    text: "text-orange-300",
+    border: "border-orange-500/30",
+    calendar: "#f97316",
   },
   no_show: {
     bg: "bg-amber-500/15",

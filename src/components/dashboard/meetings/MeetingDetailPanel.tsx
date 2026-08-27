@@ -7,10 +7,12 @@ import {
   CheckCircle2,
   Copy,
   ExternalLink,
+  Flag,
   Loader2,
   Mail,
   MessageCircle,
   Pencil,
+  PhoneOff,
   RefreshCw,
   Sparkles,
   Trash2,
@@ -416,7 +418,25 @@ export function MeetingDetailPanel({
                 className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
               >
                 <BadgeCheck className="size-4 text-violet-400" />
-                Confirmé
+                Confirmed
+              </button>
+              <button
+                type="button"
+                disabled={busy || meeting.status === "no_answer"}
+                onClick={() => void setStatus("no_answer")}
+                className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
+              >
+                <PhoneOff className="size-4 text-zinc-400" />
+                No answer
+              </button>
+              <button
+                type="button"
+                disabled={busy || meeting.status === "reported"}
+                onClick={() => void setStatus("reported")}
+                className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
+              >
+                <Flag className="size-4 text-orange-400" />
+                Reported
               </button>
               <button
                 type="button"
@@ -443,7 +463,7 @@ export function MeetingDetailPanel({
                 className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
               >
                 <XCircle className="size-4 text-red-400" />
-                Annulé
+                Cancelled
               </button>
               <button
                 type="button"
@@ -452,7 +472,7 @@ export function MeetingDetailPanel({
                 className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
               >
                 <UserX className="size-4 text-amber-400" />
-                No-show
+                No show
               </button>
             </div>
           </div>

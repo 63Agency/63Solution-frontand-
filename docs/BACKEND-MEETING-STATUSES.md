@@ -1,30 +1,45 @@
-# Meeting statuses — nouveaux valeurs
+# Meeting statuses
 
 ## Enum API (snake_case)
 
 ```ts
 type MeetingStatus =
   | "scheduled"      // Planifié
-  | "confirmed"      // Confirmé
+  | "confirmed"      // Confirmed
   | "bon_qualified"  // Bon Qualified
   | "done"           // Fait
-  | "cancelled"      // Annulé
-  | "no_show";       // No-show
+  | "no_answer"      // No answer
+  | "cancelled"      // Cancelled
+  | "reported"       // Reported
+  | "no_show";       // No show
 ```
 
 | Valeur API | Label UI |
 |------------|----------|
 | `scheduled` | Planifié |
-| `confirmed` | Confirmé |
+| `confirmed` | Confirmed |
 | `bon_qualified` | Bon Qualified |
 | `done` | Fait |
-| `cancelled` | Annulé |
-| `no_show` | No-show |
+| `no_answer` | No answer |
+| `cancelled` | Cancelled |
+| `reported` | Reported |
+| `no_show` | No show |
+
+## Nouveaux statuts à supporter
+
+- **`no_answer`** — pas de réponse du contact
+- **`reported`** — RDV signalé / reporté (à traiter)
+
+Les autres (`confirmed`, `cancelled`, `no_show`) existent déjà côté front.
 
 ## À faire côté Nest
 
-1. Étendre l’enum / check DB `meetings.status` pour accepter `confirmed` et `bon_qualified`.
-2. Migration si colonne enum Postgres (ALTER TYPE … ADD VALUE).
+1. Étendre l’enum / check DB `meetings.status` pour accepter **`no_answer`** et **`reported`**.
+2. Migration Postgres si enum :  
+   `ALTER TYPE … ADD VALUE 'no_answer';`  
+   `ALTER TYPE … ADD VALUE 'reported';`
 3. `POST` / `PATCH /meetings` : valider ces valeurs.
-4. `GET /meetings?status=confirmed` et `?status=bon_qualified` doivent filtrer correctement.
-5. Rappels auto : comme pour `done` / `cancelled` / `no_show`, décider si `confirmed` / `bon_qualified` **annulent** ou **gardent** les jobs pending (recommandé : **garder** les rappels pour `confirmed` et `bon_qualified`, annuler seulement pour `cancelled` / `done` / `no_show`).
+4. Filtres : `GET /meetings?status=no_answer` et `?status=reported`.
+5. Rappels auto :
+   - **Annuler** jobs pending si `cancelled` / `done` / `no_show` / `reported` (recommandé).
+   - **Garder** les rappels pour `confirmed`, `bon_qualified`, `no_answer`, `scheduled`.
