@@ -11,7 +11,7 @@ type MeetingStatus =
   | "bon_qualified"  // Bon Qualified — rappels gardés
   | "non_qualified"  // Non qualifier — rappels annulés
   | "no_answer"      // No answer — rappels gardés
-  | "done"           // Fait — rappels annulés
+  | "done"           // Done — rappels annulés
   | "cancelled"      // Annulé — rappels annulés
   | "reported"       // Reported — rappels annulés
   | "no_show";       // No-show — rappels annulés
@@ -24,7 +24,7 @@ type MeetingStatus =
 | `bon_qualified` | Bon Qualified | gardés |
 | `non_qualified` | Non qualifier | annulés |
 | `no_answer` | No answer | gardés |
-| `done` | Fait | annulés |
+| `done` | Done | annulés |
 | `cancelled` | Annulé | annulés |
 | `reported` | Reported | annulés |
 | `no_show` | No-show | annulés |

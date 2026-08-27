@@ -206,7 +206,7 @@ export const MEETING_STATUS_LABELS: Record<MeetingStatus, string> = {
   bon_qualified: "Bon Qualified",
   non_qualified: "Non qualifier",
   no_answer: "No answer",
-  done: "Fait",
+  done: "Done",
   cancelled: "Annulé",
   reported: "Reported",
   no_show: "No-show",

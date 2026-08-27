@@ -464,7 +464,7 @@ export function MeetingDetailPanel({
                 className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
               >
                 <CheckCircle2 className="size-4 text-emerald-400" />
-                Marquer comme fait
+                Done
               </button>
               <button
                 type="button"
