@@ -15,6 +15,7 @@ import {
   PhoneOff,
   RefreshCw,
   Sparkles,
+  ThumbsDown,
   Trash2,
   UserX,
   Video,
@@ -418,7 +419,25 @@ export function MeetingDetailPanel({
                 className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
               >
                 <BadgeCheck className="size-4 text-violet-400" />
-                Confirmed
+                Confirmé
+              </button>
+              <button
+                type="button"
+                disabled={busy || meeting.status === "bon_qualified"}
+                onClick={() => void setStatus("bon_qualified")}
+                className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
+              >
+                <Sparkles className="size-4 text-teal-400" />
+                Bon Qualified
+              </button>
+              <button
+                type="button"
+                disabled={busy || meeting.status === "non_qualified"}
+                onClick={() => void setStatus("non_qualified")}
+                className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
+              >
+                <ThumbsDown className="size-4 text-rose-400" />
+                Non qualifier
               </button>
               <button
                 type="button"
@@ -440,15 +459,6 @@ export function MeetingDetailPanel({
               </button>
               <button
                 type="button"
-                disabled={busy || meeting.status === "bon_qualified"}
-                onClick={() => void setStatus("bon_qualified")}
-                className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
-              >
-                <Sparkles className="size-4 text-teal-400" />
-                Bon Qualified
-              </button>
-              <button
-                type="button"
                 disabled={busy || meeting.status === "done"}
                 onClick={() => void setStatus("done")}
                 className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
@@ -463,7 +473,7 @@ export function MeetingDetailPanel({
                 className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
               >
                 <XCircle className="size-4 text-red-400" />
-                Cancelled
+                Annulé
               </button>
               <button
                 type="button"
@@ -472,7 +482,7 @@ export function MeetingDetailPanel({
                 className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 px-3 py-2.5 text-sm text-zinc-200 hover:bg-zinc-800 disabled:opacity-40"
               >
                 <UserX className="size-4 text-amber-400" />
-                No show
+                No-show
               </button>
             </div>
           </div>
