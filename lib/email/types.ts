@@ -3,6 +3,13 @@ export type EmailRecipient = {
   name: string;
 };
 
+export type EmailTemplate = {
+  id: string;
+  name: string;
+  subject: string;
+  html: string;
+};
+
 export type FetchEmailRecipientsParams = {
   listId?: string | null;
   status?: string | null;
@@ -13,6 +20,9 @@ export type EmailBroadcastPayload = {
   subject: string;
   html: string;
   recipients: EmailRecipient[];
+  /** Si envoi depuis un template catalogue. */
+  templateId?: string;
+  templateName?: string;
 };
 
 export type EmailBroadcastResultItem = {

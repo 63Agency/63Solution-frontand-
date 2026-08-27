@@ -1,12 +1,18 @@
 import { getApiBaseUrl, getStoredAccessToken } from "../auth/backend-login";
 import { parseBackendApiError } from "../auth/api-errors";
+import { normalizeWhatsAppTemplates } from "../whatsapp/whatsapp-templates";
 import type {
   EmailBroadcastPayload,
   EmailBroadcastResult,
   EmailBroadcastResultItem,
   EmailRecipient,
+  EmailTemplate,
   FetchEmailRecipientsParams,
 } from "./types";
+import {
+  BUILTIN_EMAIL_TEMPLATES,
+  mapWhatsAppTemplatesToEmail,
+} from "./email-templates";
 
 function buildAuthHeaders(): Record<string, string> {
   const token = getStoredAccessToken();
@@ -136,9 +142,91 @@ export async function fetchEmailRecipients({
   return recipients;
 }
 
+function parseEmailTemplate(row: unknown, index: number): EmailTemplate | null {
+  if (!row || typeof row !== "object") return null;
+  const r = row as Record<string, unknown>;
+  const name = String(r.name ?? r.templateName ?? r.slug ?? "").trim();
+  const subject = String(r.subject ?? r.title ?? "").trim();
+  const html = String(r.html ?? r.body ?? r.content ?? "").trim();
+  if (!subject && !html) return null;
+  const id = String(r.id ?? r.templateId ?? name ?? `email-template-${index}`).trim();
+  return {
+    id: id || `email-template-${index}`,
+    name: name || subject || `Template ${index + 1}`,
+    subject: subject || "(sans objet)",
+    html: html || `<p>${subject}</p>`,
+  };
+}
+
+/**
+ * Templates email = même catalogue que WhatsApp bulk,
+ * réécrits en version professionnelle (objet + HTML).
+ * Source : /api/whatsapp/templates → adaptation front.
+ * Fallback : GET /email/templates Nest, puis builtins.
+ */
+export async function fetchEmailTemplates(
+  signal?: AbortSignal,
+): Promise<EmailTemplate[]> {
+  const token = getStoredAccessToken();
+
+  try {
+    const res = await fetch("/api/whatsapp/templates", {
+      method: "GET",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      cache: "no-store",
+      signal,
+    });
+    if (res.ok) {
+      const raw = await res.json().catch(() => null);
+      const wa = normalizeWhatsAppTemplates(
+        Array.isArray(raw)
+          ? raw
+          : raw && typeof raw === "object"
+            ? raw
+            : [],
+      );
+      const mapped = mapWhatsAppTemplatesToEmail(wa);
+      if (mapped.length > 0) return mapped;
+    }
+  } catch (e) {
+    if (signal?.aborted) throw e;
+  }
+
+  const base = getApiBaseUrl();
+  if (base) {
+    try {
+      const res = await fetch(`${base}/email/templates`, {
+        method: "GET",
+        headers: buildAuthHeaders(),
+        credentials: "include",
+        cache: "no-store",
+        signal,
+      });
+      if (res.ok) {
+        const raw = await res.json().catch(() => null);
+        const rows = Array.isArray(raw)
+          ? raw
+          : raw &&
+              typeof raw === "object" &&
+              Array.isArray((raw as { templates?: unknown }).templates)
+            ? (raw as { templates: unknown[] }).templates
+            : [];
+        const templates = rows
+          .map((row, index) => parseEmailTemplate(row, index))
+          .filter((t): t is EmailTemplate => t !== null);
+        if (templates.length > 0) return templates;
+      }
+    } catch (e) {
+      if (signal?.aborted) throw e;
+    }
+  }
+
+  return [...BUILTIN_EMAIL_TEMPLATES];
+}
+
 /**
  * POST /email/broadcast
- * Body: { subject, html, recipients: [{ email, name }] }
+ * Body: { subject, html, recipients: [{ email, name }], templateId?, templateName? }
  * → { sent, failed, total, results[] }
  */
 export async function sendEmailBroadcast(
@@ -163,11 +251,15 @@ export async function sendEmailBroadcast(
     throw new Error("Ajoutez au moins un destinataire avec email.");
   }
 
+  const body: Record<string, unknown> = { subject, html, recipients };
+  if (payload.templateId?.trim()) body.templateId = payload.templateId.trim();
+  if (payload.templateName?.trim()) body.templateName = payload.templateName.trim();
+
   const res = await fetch(`${base}/email/broadcast`, {
     method: "POST",
     headers: buildAuthHeaders(),
     credentials: "include",
-    body: JSON.stringify({ subject, html, recipients }),
+    body: JSON.stringify(body),
   });
 
   if (!res.ok) {

@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   CheckSquare,
   ChevronDown,
+  FileText,
   Filter,
   Loader2,
   Mail,
@@ -20,11 +21,17 @@ import {
 import { toast } from "sonner";
 import {
   fetchEmailRecipients,
+  fetchEmailTemplates,
   sendEmailBroadcast,
 } from "@/lib/email/backend-email";
+import {
+  emailTemplateHasNameVar,
+  emailTemplatePlainPreview,
+} from "@/lib/email/email-templates";
 import type {
   EmailBroadcastResult,
   EmailRecipient,
+  EmailTemplate,
 } from "@/lib/email/types";
 import { fetchLeadsFilters } from "@/lib/leads/api-leads";
 import type { LeadListOption, LeadStatusOption } from "@/lib/leads/types";
@@ -41,10 +48,11 @@ const TR = "border-b border-zinc-800 transition hover:bg-zinc-800/50";
 const TD = "py-3 pr-4";
 
 type WizardStep = 1 | 2 | 3;
+type SendMode = "template" | "text";
 
 const STEPS: { id: WizardStep; label: string }[] = [
   { id: 1, label: "Destinataires" },
-  { id: 2, label: "Message" },
+  { id: 2, label: "Template" },
   { id: 3, label: "Confirmation" },
 ];
 
@@ -329,10 +337,14 @@ export function BulkEmailPage() {
   const [loadingRecipients, setLoadingRecipients] = useState(false);
   const [search, setSearch] = useState("");
 
-  const [subject, setSubject] = useState("Bonjour {{name}}");
-  const [htmlBody, setHtmlBody] = useState(
-    "<p>Bonjour {{name}},</p>\n<p>J'espère que vous allez bien.</p>\n<p>Cordialement,<br/>63 Agency</p>",
+  const [sendMode, setSendMode] = useState<SendMode>("template");
+  const [templates, setTemplates] = useState<EmailTemplate[]>([]);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
+  const [selectedTemplate, setSelectedTemplate] = useState<EmailTemplate | null>(
+    null,
   );
+  const [subject, setSubject] = useState("");
+  const [htmlBody, setHtmlBody] = useState("");
 
   const [listPage, setListPage] = useState(1);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -351,6 +363,36 @@ export function BulkEmailPage() {
         if (!cancelled) {
           toast.error("Impossible de charger les filtres leads.");
         }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setTemplatesLoading(true);
+    void (async () => {
+      try {
+        const list = await fetchEmailTemplates();
+        if (cancelled) return;
+        setTemplates(list);
+        if (list.length > 0) {
+          setSelectedTemplate(list[0]);
+          setSubject(list[0].subject);
+          setHtmlBody(list[0].html);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          toast.error(
+            e instanceof Error
+              ? e.message
+              : "Impossible de charger les templates email.",
+          );
+        }
+      } finally {
+        if (!cancelled) setTemplatesLoading(false);
       }
     })();
     return () => {
@@ -445,7 +487,9 @@ export function BulkEmailPage() {
 
   const canGoStep2 = selectedRecipients.length > 0;
   const canGoStep3 =
-    subject.trim().length > 0 && htmlBody.trim().length > 0;
+    sendMode === "template"
+      ? Boolean(selectedTemplate && subject.trim() && htmlBody.trim())
+      : subject.trim().length > 0 && htmlBody.trim().length > 0;
 
   const goToStep = (step: WizardStep) => {
     setCurrentStep(step);
@@ -460,6 +504,10 @@ export function BulkEmailPage() {
       }
       goToStep(2);
     } else if (currentStep === 2) {
+      if (sendMode === "template" && !selectedTemplate) {
+        toast.error("Sélectionnez un template email.");
+        return;
+      }
       if (!canGoStep3) {
         toast.error("Sujet et corps de l'email sont obligatoires.");
         return;
@@ -507,6 +555,13 @@ export function BulkEmailPage() {
     });
   };
 
+  const handleTemplateSelect = (template: EmailTemplate) => {
+    setSelectedTemplate(template);
+    setSubject(template.subject);
+    setHtmlBody(template.html);
+    setSendMode("template");
+  };
+
   const handleSend = async () => {
     if (selectedRecipients.length === 0) {
       toast.error("Aucun destinataire.");
@@ -524,6 +579,12 @@ export function BulkEmailPage() {
         subject: subject.trim(),
         html: htmlBody.trim(),
         recipients: selectedRecipients,
+        ...(sendMode === "template" && selectedTemplate
+          ? {
+              templateId: selectedTemplate.id,
+              templateName: selectedTemplate.name,
+            }
+          : {}),
       });
       setResults(res);
       if (res.failed === 0) {
@@ -862,65 +923,187 @@ export function BulkEmailPage() {
         </div>
       ) : null}
 
-      {/* Step 2 — Composer */}
+      {/* Step 2 — Template (même catalogue WhatsApp, texte email pro + objet) */}
       {!results && currentStep === 2 ? (
         <div className="space-y-4">
-          <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
-            <label className="block space-y-1.5">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                Objet
-              </span>
-              <input
-                type="text"
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                placeholder="Ex. Bonjour {{name}}"
-                className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-emerald-600/80 focus:ring-2 focus:ring-emerald-600/20"
-              />
-            </label>
-            <p className="mt-2 text-xs text-zinc-500">
-              Utilisez{" "}
+          <div>
+            <h2 className="text-lg font-semibold text-white">
+              Choisir le message
+            </h2>
+            <p className="text-sm text-zinc-500">
+              Mêmes templates que l&apos;envoi WhatsApp, réécrits en email
+              professionnel avec objet. Variable{" "}
               <code className="rounded bg-zinc-800 px-1 text-emerald-300">
                 {"{{name}}"}
-              </code>{" "}
-              — remplacé par le nom de chaque destinataire.
+              </code>
+              .
             </p>
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
-              <label className="block space-y-1.5">
-                <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                  Corps HTML
-                </span>
-                <textarea
-                  value={htmlBody}
-                  onChange={(e) => setHtmlBody(e.target.value)}
-                  rows={14}
-                  spellCheck={false}
-                  className="app-scroll w-full resize-y rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 font-mono text-[13px] leading-relaxed text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-emerald-600/80 focus:ring-2 focus:ring-emerald-600/20"
-                  placeholder="<p>Bonjour {{name}},</p>"
-                />
-              </label>
-            </div>
+          <div className="flex rounded-xl bg-zinc-900 p-1 ring-1 ring-zinc-800">
+            <button
+              type="button"
+              onClick={() => setSendMode("template")}
+              className={cn(
+                "flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition",
+                sendMode === "template"
+                  ? "bg-zinc-800 text-white"
+                  : "text-zinc-500 hover:text-zinc-300",
+              )}
+            >
+              <FileText className="size-4 shrink-0" />
+              <span className="hidden sm:inline">Template email</span>
+              <span className="sm:hidden">Template</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setSendMode("text");
+                setSelectedTemplate(null);
+                if (!subject.trim()) setSubject("Bonjour {{name}}");
+                if (!htmlBody.trim()) {
+                  setHtmlBody(
+                    "<p>Bonjour {{name}},</p>\n<p></p>\n<p>Cordialement,<br/>L'équipe 63 Agency</p>",
+                  );
+                }
+              }}
+              className={cn(
+                "flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition",
+                sendMode === "text"
+                  ? "bg-zinc-800 text-white"
+                  : "text-zinc-500 hover:text-zinc-300",
+              )}
+            >
+              <Mail className="size-4" />
+              Texte libre
+            </button>
+          </div>
 
+          {sendMode === "template" ? (
+            templatesLoading ? (
+              <div className="flex items-center justify-center gap-3 py-16 text-zinc-500">
+                <Loader2 className="size-6 animate-spin text-emerald-500" />
+                Chargement des templates…
+              </div>
+            ) : templates.length === 0 ? (
+              <div className="rounded-2xl bg-amber-500/5 p-6 text-center ring-1 ring-amber-500/20">
+                <p className="text-sm text-amber-400">
+                  Aucun template trouvé. Vérifiez la config WhatsApp / Meta.
+                </p>
+              </div>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2">
+                {templates.map((template) => {
+                  const selected = selectedTemplate?.id === template.id;
+                  const preview = emailTemplatePlainPreview(template);
+                  return (
+                    <button
+                      key={template.id}
+                      type="button"
+                      onClick={() => handleTemplateSelect(template)}
+                      className={cn(
+                        "rounded-2xl p-4 text-left ring-1 transition",
+                        selected
+                          ? "bg-emerald-500/10 ring-emerald-500/40"
+                          : "bg-zinc-900 ring-zinc-800 hover:ring-zinc-700",
+                      )}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-semibold text-white">
+                          {template.name}
+                        </p>
+                        {selected ? (
+                          <CheckCircle2 className="size-5 shrink-0 text-emerald-400" />
+                        ) : null}
+                      </div>
+                      <p className="mt-2 text-xs font-medium text-emerald-300/90">
+                        Objet : {template.subject}
+                      </p>
+                      <p className="mt-2 line-clamp-4 text-sm leading-relaxed text-zinc-400">
+                        {preview}
+                      </p>
+                      {emailTemplateHasNameVar(template) ? (
+                        <p className="mt-2 text-xs text-emerald-400/70">
+                          Variable {"{{name}}"} = nom du contact
+                        </p>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            )
+          ) : (
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
+                <label className="block space-y-1.5">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                    Objet
+                  </span>
+                  <input
+                    type="text"
+                    value={subject}
+                    onChange={(e) => setSubject(e.target.value)}
+                    placeholder="Ex. Bonjour {{name}}"
+                    className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 placeholder:text-zinc-600 outline-none focus:border-emerald-600/80 focus:ring-2 focus:ring-emerald-600/20"
+                  />
+                </label>
+              </div>
+              <div className="grid gap-4 lg:grid-cols-2">
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
+                  <label className="block space-y-1.5">
+                    <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                      Corps HTML
+                    </span>
+                    <textarea
+                      value={htmlBody}
+                      onChange={(e) => setHtmlBody(e.target.value)}
+                      rows={12}
+                      spellCheck={false}
+                      className="app-scroll w-full resize-y rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 font-mono text-[13px] leading-relaxed text-zinc-100 outline-none focus:border-emerald-600/80 focus:ring-2 focus:ring-emerald-600/20"
+                    />
+                  </label>
+                </div>
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
+                  <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                    Aperçu ({previewName})
+                  </p>
+                  <div className="rounded-xl border border-zinc-700 bg-white p-4 text-zinc-900 shadow-inner">
+                    <p className="mb-3 border-b border-zinc-200 pb-2 text-sm font-semibold">
+                      {previewSubject || "(sans objet)"}
+                    </p>
+                    <div
+                      className="prose prose-sm max-w-none text-sm"
+                      dangerouslySetInnerHTML={{
+                        __html:
+                          previewHtml ||
+                          "<p class='text-zinc-400'>(vide)</p>",
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {sendMode === "template" && selectedTemplate ? (
             <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-5">
               <p className="mb-3 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
-                Aperçu ({previewName})
+                Aperçu email ({previewName})
               </p>
               <div className="rounded-xl border border-zinc-700 bg-white p-4 text-zinc-900 shadow-inner">
+                <p className="mb-1 text-[11px] uppercase tracking-wide text-zinc-500">
+                  Objet
+                </p>
                 <p className="mb-3 border-b border-zinc-200 pb-2 text-sm font-semibold">
-                  {previewSubject || "(sans objet)"}
+                  {previewSubject}
                 </p>
                 <div
                   className="prose prose-sm max-w-none text-sm"
-                  dangerouslySetInnerHTML={{
-                    __html: previewHtml || "<p class='text-zinc-400'>(vide)</p>",
-                  }}
+                  dangerouslySetInnerHTML={{ __html: previewHtml }}
                 />
               </div>
             </div>
-          </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -934,6 +1117,14 @@ export function BulkEmailPage() {
                 <dt className="text-zinc-500">Destinataires</dt>
                 <dd className="font-medium text-zinc-200">
                   {selectedRecipients.length}
+                </dd>
+              </div>
+              <div className="flex justify-between gap-4">
+                <dt className="text-zinc-500">Mode</dt>
+                <dd className="font-medium text-zinc-200">
+                  {sendMode === "template" && selectedTemplate
+                    ? `Template : ${selectedTemplate.name}`
+                    : "Texte libre"}
                 </dd>
               </div>
               <div className="flex justify-between gap-4">
