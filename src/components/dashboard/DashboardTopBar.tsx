@@ -20,9 +20,6 @@ function getPageTitle(pathname: string): string {
   if (pathname.startsWith("/dashboard/conversations/envoi-multiple")) {
     return "Envoi multiple";
   }
-  if (pathname.startsWith("/dashboard/conversations/email-multiple")) {
-    return "Envoi Email";
-  }
   if (pathname.startsWith("/dashboard/conversations")) return "Conversations";
   if (pathname.startsWith("/dashboard/factures")) return "Devis, factures & propositions";
   if (pathname.startsWith("/dashboard/clients")) return "Clients";

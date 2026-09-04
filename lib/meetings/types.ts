@@ -17,6 +17,7 @@ export const MEETING_TITLE_OPTIONS = [
   "Audit Performance Marketing",
   "Audit Performance Marketing présentiel",
   "Audit Performance Marketing online",
+  "Appel téléphonique",
 ] as const;
 
 export type MeetingTitleOption = (typeof MEETING_TITLE_OPTIONS)[number];

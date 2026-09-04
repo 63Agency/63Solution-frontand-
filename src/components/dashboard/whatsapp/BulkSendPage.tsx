@@ -14,12 +14,15 @@ import {
   MessageSquare,
   Plus,
   RotateCcw,
+  Save,
   Send,
   Trash2,
   Users,
   XCircle,
 } from "lucide-react";
 import { toast } from "sonner";
+import { sendEmailBroadcast, fetchEmailTemplateMapping, saveEmailTemplateMapping } from "@/lib/email/backend-email";
+import type { EmailBroadcastResultItem } from "@/lib/email/types";
 import {
   BULK_SEND_IMPORT_PATH,
   consumeBulkSendImport,
@@ -57,7 +60,20 @@ const BULK_TD = "py-3 pr-4";
 const BULK_TD_RIGHT = "py-3 pl-4 text-right";
 
 type WizardStep = 1 | 2 | 3;
-type Recipient = { phone: string; name: string };
+type Recipient = { phone: string; name: string; email?: string };
+
+type ChannelStatus = "sent" | "failed" | "na";
+
+type CombinedResultRow = {
+  key: string;
+  name: string;
+  phone: string;
+  email: string;
+  whatsapp: ChannelStatus;
+  emailStatus: ChannelStatus;
+  whatsappDetail?: string;
+  emailDetail?: string;
+};
 
 const STEPS: { id: WizardStep; label: string }[] = [
   { id: 1, label: "Destinataires" },
@@ -65,24 +81,56 @@ const STEPS: { id: WizardStep; label: string }[] = [
   { id: 3, label: "Confirmation" },
 ];
 
+function personalizeEmail(text: string, name: string): string {
+  return text.replace(/\{\{\s*name\s*\}\}/gi, name.trim() || FALLBACK_TEMPLATE_NAME);
+}
+
+function isValidEmail(value: string | undefined): boolean {
+  if (!value) return false;
+  const email = value.trim().toLowerCase();
+  return email.includes("@") && email.includes(".");
+}
+
 function recipientsFromDraft(
   phonesRaw: string,
   names: Record<string, string>,
+  emails: Record<string, string>,
+  emailOnly: Array<{ email: string; name: string }>,
 ): Recipient[] {
-  return parsePhoneNumbersInput(phonesRaw).map((phone) => ({
+  const phoneRecipients = parsePhoneNumbersInput(phonesRaw).map((phone) => ({
     phone,
     name: names[phone]?.trim() ?? "",
+    ...(emails[phone] ? { email: emails[phone] } : {}),
   }));
+  const emailOnlyRecipients = emailOnly.map((c) => ({
+    phone: "",
+    name: c.name,
+    email: c.email,
+  }));
+  return [...phoneRecipients, ...emailOnlyRecipients];
 }
 
 function draftFromRecipients(recipients: Recipient[]) {
+  const withPhone = recipients.filter((r) => r.phone.length >= 9);
+  const emailOnly = recipients.filter(
+    (r) => r.phone.length < 9 && isValidEmail(r.email),
+  );
   return {
-    phonesRaw: recipients.map((r) => r.phone).join("\n"),
+    phonesRaw: withPhone.map((r) => r.phone).join("\n"),
     contactNamesByPhone: Object.fromEntries(
-      recipients
+      withPhone
         .filter((r) => r.name.trim())
         .map((r) => [r.phone, r.name.trim()]),
     ),
+    contactEmailsByPhone: Object.fromEntries(
+      withPhone
+        .filter((r) => isValidEmail(r.email))
+        .map((r) => [r.phone, r.email!.trim().toLowerCase()]),
+    ),
+    emailOnlyContacts: emailOnly.map((r) => ({
+      email: r.email!.trim().toLowerCase(),
+      name: r.name.trim() || r.email!.split("@")[0] || "Client",
+    })),
   };
 }
 
@@ -305,6 +353,44 @@ function RecipientMobileCard({
   );
 }
 
+function ChannelStatusCell({ status }: { status: ChannelStatus }) {
+  if (status === "sent") {
+    return <span className="text-emerald-400">Envoyé</span>;
+  }
+  if (status === "failed") {
+    return <span className="text-red-400">Échec</span>;
+  }
+  return <span className="text-zinc-600">—</span>;
+}
+
+function CombinedResultMobileCard({ row }: { row: CombinedResultRow }) {
+  return (
+    <div className="rounded-xl border border-zinc-800 bg-zinc-900/60 p-3">
+      <p className="text-sm font-medium text-zinc-100">
+        {row.name || row.email || formatWhatsAppPhone(row.phone) || "—"}
+      </p>
+      {row.phone ? (
+        <p className="mt-0.5 font-mono text-xs text-zinc-500">
+          {formatWhatsAppPhone(row.phone)}
+        </p>
+      ) : null}
+      {row.email ? (
+        <p className="mt-0.5 text-xs text-zinc-500">{row.email}</p>
+      ) : null}
+      <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+        <div>
+          <p className="text-zinc-500">WhatsApp</p>
+          <ChannelStatusCell status={row.whatsapp} />
+        </div>
+        <div>
+          <p className="text-zinc-500">Email</p>
+          <ChannelStatusCell status={row.emailStatus} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SendResultMobileCard({
   result,
 }: {
@@ -347,6 +433,15 @@ export function BulkSendPage() {
   const [results, setResults] = useState<BulkWhatsAppSendResultItem[] | null>(
     null,
   );
+  const [emailResults, setEmailResults] = useState<
+    EmailBroadcastResultItem[] | null
+  >(null);
+  const [alsoSendEmail, setAlsoSendEmail] = useState(false);
+  const [emailSubject, setEmailSubject] = useState("");
+  const [emailHtml, setEmailHtml] = useState("");
+  const [emailMappingFound, setEmailMappingFound] = useState(false);
+  const [emailMappingLoading, setEmailMappingLoading] = useState(false);
+  const [emailMappingSaving, setEmailMappingSaving] = useState(false);
   const [leadsImportCount, setLeadsImportCount] = useState(0);
   const [draftReady, setDraftReady] = useState(false);
   const [pendingTemplateId, setPendingTemplateId] = useState<
@@ -365,10 +460,12 @@ export function BulkSendPage() {
     const draft = loadBulkSendDraft();
     const phones = draft?.phonesRaw ?? "";
     const names = { ...(draft?.contactNamesByPhone ?? {}) };
+    const emails = { ...(draft?.contactEmailsByPhone ?? {}) };
+    const emailOnly = [...(draft?.emailOnlyContacts ?? [])];
     const draftSendMode = draft?.sendMode ?? "template";
     const draftTemplateId = draft?.selectedTemplateId;
 
-    setRecipients(recipientsFromDraft(phones, names));
+    setRecipients(recipientsFromDraft(phones, names, emails, emailOnly));
     setMessage(draft?.message ?? "");
     setLeadsImportCount(draft?.leadsImportCount ?? 0);
     setSendMode(draftSendMode);
@@ -422,7 +519,12 @@ export function BulkSendPage() {
 
   useEffect(() => {
     if (!draftReady) return;
-    const { phonesRaw, contactNamesByPhone } = draftFromRecipients(recipients);
+    const {
+      phonesRaw,
+      contactNamesByPhone,
+      contactEmailsByPhone,
+      emailOnlyContacts,
+    } = draftFromRecipients(recipients);
     saveBulkSendDraft({
       phonesRaw,
       message,
@@ -430,6 +532,8 @@ export function BulkSendPage() {
       sendMode,
       selectedTemplateId: selectedTemplate?.id,
       contactNamesByPhone,
+      contactEmailsByPhone,
+      emailOnlyContacts,
     });
   }, [
     draftReady,
@@ -476,10 +580,89 @@ export function BulkSendPage() {
       : 0;
 
   const resultSummary = useMemo(() => {
-    if (!results) return null;
-    const sent = results.filter((r) => r.success).length;
-    return { sent, failed: results.length - sent, total: results.length };
-  }, [results]);
+    if (!results && !emailResults) return null;
+    const waSent = results?.filter((r) => r.success).length ?? 0;
+    const waFailed = results?.filter((r) => !r.success).length ?? 0;
+    const emSent = emailResults?.filter((r) => r.success).length ?? 0;
+    const emFailed = emailResults?.filter((r) => !r.success).length ?? 0;
+    return {
+      waSent,
+      waFailed,
+      emSent,
+      emFailed,
+      sent: waSent + emSent,
+      failed: waFailed + emFailed,
+      total: recipients.length,
+    };
+  }, [results, emailResults, recipients.length]);
+
+  const combinedResults = useMemo((): CombinedResultRow[] | null => {
+    if (!results && !emailResults) return null;
+
+    const waByPhone = new Map(
+      (results ?? []).map((r) => [
+        normalizeWhatsAppPhoneDigits(r.phoneNumber),
+        r,
+      ]),
+    );
+    const emByEmail = new Map(
+      (emailResults ?? []).map((r) => [r.email.toLowerCase(), r]),
+    );
+
+    return recipients.map((r, index) => {
+      const phone = r.phone.length >= 9 ? r.phone : "";
+      const email = isValidEmail(r.email) ? r.email!.trim().toLowerCase() : "";
+      const wa = phone ? waByPhone.get(phone) : undefined;
+      const em = email ? emByEmail.get(email) : undefined;
+
+      let whatsapp: ChannelStatus = "na";
+      if (phone) {
+        if (wa) whatsapp = wa.success ? "sent" : "failed";
+        else if (results) whatsapp = "failed";
+      }
+
+      let emailStatus: ChannelStatus = "na";
+      if (email && alsoSendEmail) {
+        if (em) emailStatus = em.success ? "sent" : "failed";
+        else if (emailResults) emailStatus = "failed";
+      }
+
+      return {
+        key: phone || email || `row-${index}`,
+        name: r.name,
+        phone,
+        email,
+        whatsapp,
+        emailStatus,
+        whatsappDetail: wa
+          ? wa.success
+            ? "Message transmis"
+            : wa.error
+          : phone
+            ? undefined
+            : "Pas de téléphone",
+        emailDetail: em
+          ? em.success
+            ? "Email transmis"
+            : em.error
+          : email
+            ? alsoSendEmail
+              ? undefined
+              : "Email non demandé"
+            : "Pas d'email",
+      };
+    });
+  }, [results, emailResults, recipients, alsoSendEmail]);
+
+  const emailRecipientsCount = useMemo(
+    () => recipients.filter((r) => isValidEmail(r.email)).length,
+    [recipients],
+  );
+
+  const emailPreviewName =
+    recipients.find((r) => r.name.trim())?.name.trim() || FALLBACK_TEMPLATE_NAME;
+  const emailPreviewSubject = personalizeEmail(emailSubject, emailPreviewName);
+  const emailPreviewHtml = personalizeEmail(emailHtml, emailPreviewName);
 
   const templateBody =
     sendMode === "template" && selectedTemplate
@@ -493,7 +676,9 @@ export function BulkSendPage() {
   const canGoStep2 = recipients.length > 0;
   const canGoStep3 =
     sendMode === "template"
-      ? Boolean(selectedTemplate)
+      ? Boolean(selectedTemplate) &&
+        (!alsoSendEmail ||
+          (emailSubject.trim().length > 0 && emailHtml.trim().length > 0))
       : Boolean(message.trim());
 
   const goToStep = (step: WizardStep) => {
@@ -509,13 +694,19 @@ export function BulkSendPage() {
       }
       goToStep(2);
     } else if (currentStep === 2) {
-      if (!canGoStep3) {
-        toast.error(
-          sendMode === "template"
-            ? "Sélectionnez un template."
-            : "Rédigez votre message.",
-        );
+      if (sendMode === "template" && !selectedTemplate) {
+        toast.error("Sélectionnez un template.");
         return;
+      }
+      if (sendMode === "text" && !message.trim()) {
+        toast.error("Rédigez votre message.");
+        return;
+      }
+      if (alsoSendEmail && sendMode === "template") {
+        if (!emailSubject.trim() || !emailHtml.trim()) {
+          toast.error("Objet et corps email obligatoires.");
+          return;
+        }
       }
       setStep3Page(1);
       goToStep(3);
@@ -526,8 +717,68 @@ export function BulkSendPage() {
     if (currentStep > 1) setCurrentStep((s) => (s - 1) as WizardStep);
   };
 
+  const loadEmailMappingForTemplate = async (template: any) => {
+    const waName = String(template?.name ?? "").trim();
+    if (!waName) {
+      setEmailSubject("");
+      setEmailHtml("");
+      setEmailMappingFound(false);
+      return;
+    }
+    setEmailMappingLoading(true);
+    try {
+      const mapping = await fetchEmailTemplateMapping(waName);
+      setEmailSubject(mapping.subject);
+      setEmailHtml(mapping.html);
+      setEmailMappingFound(mapping.found);
+    } catch (e) {
+      setEmailSubject("");
+      setEmailHtml("");
+      setEmailMappingFound(false);
+      toast.error(
+        e instanceof Error
+          ? e.message
+          : "Impossible de charger la version email.",
+      );
+    } finally {
+      setEmailMappingLoading(false);
+    }
+  };
+
+  const handleSaveEmailMapping = async () => {
+    const waName = String(selectedTemplate?.name ?? "").trim();
+    if (!waName) {
+      toast.error("Sélectionnez un template WhatsApp.");
+      return;
+    }
+    if (!emailSubject.trim() || !emailHtml.trim()) {
+      toast.error("Objet et corps email obligatoires pour enregistrer.");
+      return;
+    }
+    setEmailMappingSaving(true);
+    try {
+      await saveEmailTemplateMapping(waName, {
+        subject: emailSubject,
+        html: emailHtml,
+      });
+      setEmailMappingFound(true);
+      toast.success("Version email enregistrée comme défaut.");
+    } catch (e) {
+      toast.error(
+        e instanceof Error ? e.message : "Enregistrement impossible.",
+      );
+    } finally {
+      setEmailMappingSaving(false);
+    }
+  };
+
   const handleImportFromLeads = () => {
-    const { phonesRaw, contactNamesByPhone } = draftFromRecipients(recipients);
+    const {
+      phonesRaw,
+      contactNamesByPhone,
+      contactEmailsByPhone,
+      emailOnlyContacts,
+    } = draftFromRecipients(recipients);
     saveBulkSendDraft({
       phonesRaw,
       message,
@@ -535,6 +786,8 @@ export function BulkSendPage() {
       sendMode,
       selectedTemplateId: selectedTemplate?.id,
       contactNamesByPhone,
+      contactEmailsByPhone,
+      emailOnlyContacts,
     });
   };
 
@@ -557,9 +810,21 @@ export function BulkSendPage() {
     toast.success("Contact ajouté.");
   };
 
-  const removeRecipient = (phone: string) => {
-    setRecipients((prev) => prev.filter((r) => r.phone !== phone));
+  const removeRecipient = (key: string) => {
+    setRecipients((prev) =>
+      prev.filter((r) => {
+        const rKey = r.phone.length >= 9 ? r.phone : r.email ?? "";
+        return rKey !== key;
+      }),
+    );
   };
+
+  const recipientKey = (r: Recipient, index = 0) =>
+    r.phone.length >= 9
+      ? r.phone
+      : isValidEmail(r.email)
+        ? `email:${r.email!.toLowerCase()}`
+        : `row:${index}`;
 
   const applyBulkPaste = () => {
     const lines = bulkPasteRaw
@@ -611,12 +876,17 @@ export function BulkSendPage() {
     setSelectedTemplate(template);
     setMessage(typeof template.body === "string" ? template.body : "");
     setSendMode("template");
+    if (alsoSendEmail) {
+      void loadEmailMappingForTemplate(template);
+    }
   };
 
   const handleSend = async () => {
-    const phones = recipients.map((r) => r.phone);
-    if (phones.length === 0) {
-      toast.error("Aucun destinataire.");
+    const phoneRecipients = recipients.filter((r) => r.phone.length >= 9);
+    const emailRecipients = recipients.filter((r) => isValidEmail(r.email));
+
+    if (phoneRecipients.length === 0 && !(alsoSendEmail && emailRecipients.length > 0)) {
+      toast.error("Aucun destinataire joignable.");
       return;
     }
     if (sendMode === "template" && !selectedTemplate) {
@@ -627,53 +897,102 @@ export function BulkSendPage() {
       toast.error("Message vide.");
       return;
     }
+    if (alsoSendEmail) {
+      if (!emailSubject.trim() || !emailHtml.trim()) {
+        toast.error("Objet et corps email obligatoires.");
+        return;
+      }
+      if (emailRecipients.length === 0) {
+        toast.message("Aucun email trouvé — WhatsApp uniquement.");
+      }
+    }
 
+    const phones = phoneRecipients.map((r) => r.phone);
     setSending(true);
     setResults(null);
-    setSendProgress({ current: 0, total: phones.length });
+    setEmailResults(null);
+    setSendProgress({ current: 0, total: Math.max(phones.length, 1) });
 
     const namesMap = Object.fromEntries(
-      recipients.map((r) => [r.phone, r.name]),
+      phoneRecipients.map((r) => [r.phone, r.name]),
     );
 
-    let payload: BulkWhatsAppSendPayload;
-    if (sendMode === "template" && selectedTemplate) {
-      if (hasVariable1) {
-        payload = {
-          phoneNumbers: phones,
-          templateName: selectedTemplate.name,
-          templateLanguage: "fr",
-          recipients: phones.map((phone) => ({
-            phoneNumber: phone,
-            variable1:
-              namesMap[phone]?.trim() || FALLBACK_TEMPLATE_NAME,
-          })),
-        };
+    let waPayload: BulkWhatsAppSendPayload | null = null;
+    if (phones.length > 0) {
+      if (sendMode === "template" && selectedTemplate) {
+        if (hasVariable1) {
+          waPayload = {
+            phoneNumbers: phones,
+            templateName: selectedTemplate.name,
+            templateLanguage: "fr",
+            recipients: phones.map((phone) => ({
+              phoneNumber: phone,
+              variable1: namesMap[phone]?.trim() || FALLBACK_TEMPLATE_NAME,
+            })),
+          };
+        } else {
+          waPayload = {
+            phoneNumbers: phones,
+            templateName: selectedTemplate.name,
+            templateLanguage: "fr",
+            components: [],
+          };
+        }
       } else {
-        payload = {
-          phoneNumbers: phones,
-          templateName: selectedTemplate.name,
-          templateLanguage: "fr",
-          components: [],
-        };
+        waPayload = { phoneNumbers: phones, text: message.trim() };
       }
-    } else {
-      payload = { phoneNumbers: phones, text: message.trim() };
     }
 
     try {
-      const res = await sendBulkWhatsAppMessages(payload, {
-        onProgress: (completed, total) => {
-          setSendProgress({ current: completed, total });
-        },
-      });
-      setResults(res.results);
-      if (res.sent > 0)
-        toast.success(
-          `${res.sent} message${res.sent > 1 ? "s" : ""} envoyé${res.sent > 1 ? "s" : ""}.`,
+      let waSent = 0;
+      let waFailed = 0;
+      let emSent = 0;
+      let emFailed = 0;
+
+      if (waPayload) {
+        const res = await sendBulkWhatsAppMessages(waPayload, {
+          onProgress: (completed, total) => {
+            setSendProgress({ current: completed, total });
+          },
+        });
+        setResults(res.results);
+        waSent = res.sent;
+        waFailed = res.failed;
+      } else {
+        setResults([]);
+      }
+
+      if (alsoSendEmail && emailRecipients.length > 0) {
+        const emailRes = await sendEmailBroadcast({
+          subject: emailSubject.trim(),
+          html: emailHtml.trim(),
+          recipients: emailRecipients.map((r) => ({
+            email: r.email!.trim().toLowerCase(),
+            name: r.name.trim() || FALLBACK_TEMPLATE_NAME,
+          })),
+          ...(selectedTemplate
+            ? {
+                templateId: String(selectedTemplate.id ?? ""),
+                templateName: String(selectedTemplate.name ?? ""),
+              }
+            : {}),
+        });
+        setEmailResults(emailRes.results);
+        emSent = emailRes.sent;
+        emFailed = emailRes.failed;
+      }
+
+      if (waSent + emSent > 0) {
+        const parts: string[] = [];
+        if (waSent > 0) parts.push(`${waSent} WhatsApp`);
+        if (emSent > 0) parts.push(`${emSent} email`);
+        toast.success(`Envoyé : ${parts.join(" · ")}`);
+      }
+      if (waFailed + emFailed > 0) {
+        toast.error(
+          `${waFailed + emFailed} échec${waFailed + emFailed > 1 ? "s" : ""}.`,
         );
-      if (res.failed > 0)
-        toast.error(`${res.failed} échec${res.failed > 1 ? "s" : ""}.`);
+      }
     } catch (e) {
       toast.error(
         formatWhatsAppSendError(
@@ -690,6 +1009,11 @@ export function BulkSendPage() {
     setMessage("");
     setSelectedTemplate(null);
     setResults(null);
+    setEmailResults(null);
+    setAlsoSendEmail(false);
+    setEmailSubject("");
+    setEmailHtml("");
+    setEmailMappingFound(false);
     setLeadsImportCount(0);
     setSendMode("template");
     setCurrentStep(1);
@@ -702,6 +1026,8 @@ export function BulkSendPage() {
       leadsImportCount: 0,
       sendMode: "template",
       contactNamesByPhone: {},
+      contactEmailsByPhone: {},
+      emailOnlyContacts: [],
     });
   };
 
@@ -713,7 +1039,8 @@ export function BulkSendPage() {
     );
   }
 
-  if (results && results.length > 0) {
+  if ((results && results.length > 0) || (emailResults && emailResults.length > 0)) {
+    const rows = combinedResults ?? [];
     return (
       <div className="app-scroll min-h-0 flex-1 overflow-y-auto bg-zinc-950">
         <div className="mx-auto max-w-4xl px-3 py-4 sm:px-6 sm:py-6">
@@ -723,11 +1050,21 @@ export function BulkSendPage() {
                 Résultats de l&apos;envoi
               </h1>
               <p className="mt-1 text-sm text-zinc-500">
-                {resultSummary?.sent} envoyé
-                {(resultSummary?.sent ?? 0) !== 1 ? "s" : ""}
-                {(resultSummary?.failed ?? 0) > 0
-                  ? ` · ${resultSummary?.failed} échec${(resultSummary?.failed ?? 0) !== 1 ? "s" : ""}`
+                WhatsApp : {resultSummary?.waSent ?? 0} envoyé
+                {(resultSummary?.waSent ?? 0) !== 1 ? "s" : ""}
+                {(resultSummary?.waFailed ?? 0) > 0
+                  ? ` · ${resultSummary?.waFailed} échec${(resultSummary?.waFailed ?? 0) !== 1 ? "s" : ""}`
                   : ""}
+                {alsoSendEmail ? (
+                  <>
+                    {" · "}
+                    Email : {resultSummary?.emSent ?? 0} envoyé
+                    {(resultSummary?.emSent ?? 0) !== 1 ? "s" : ""}
+                    {(resultSummary?.emFailed ?? 0) > 0
+                      ? ` · ${resultSummary?.emFailed} échec${(resultSummary?.emFailed ?? 0) !== 1 ? "s" : ""}`
+                      : ""}
+                  </>
+                ) : null}
               </p>
             </div>
             <button
@@ -740,11 +1077,28 @@ export function BulkSendPage() {
             </button>
           </div>
 
-          <div className="mb-6 grid grid-cols-3 gap-2 sm:gap-3">
+          <div className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-4 sm:gap-3">
             {[
-              { label: "Total", value: resultSummary?.total, color: "text-white" },
-              { label: "Envoyés", value: resultSummary?.sent, color: "text-emerald-400" },
-              { label: "Échecs", value: resultSummary?.failed, color: "text-red-400" },
+              {
+                label: "WA envoyés",
+                value: resultSummary?.waSent,
+                color: "text-emerald-400",
+              },
+              {
+                label: "WA échecs",
+                value: resultSummary?.waFailed,
+                color: "text-red-400",
+              },
+              {
+                label: "Email envoyés",
+                value: alsoSendEmail ? resultSummary?.emSent : 0,
+                color: "text-emerald-400",
+              },
+              {
+                label: "Email échecs",
+                value: alsoSendEmail ? resultSummary?.emFailed : 0,
+                color: "text-red-400",
+              },
             ].map((card) => (
               <div
                 key={card.label}
@@ -753,7 +1107,12 @@ export function BulkSendPage() {
                 <p className="text-[10px] uppercase tracking-wider text-zinc-500 sm:text-xs">
                   {card.label}
                 </p>
-                <p className={cn("mt-1 text-xl font-bold tabular-nums sm:text-2xl", card.color)}>
+                <p
+                  className={cn(
+                    "mt-1 text-xl font-bold tabular-nums sm:text-2xl",
+                    card.color,
+                  )}
+                >
                   {card.value ?? 0}
                 </p>
               </div>
@@ -762,13 +1121,17 @@ export function BulkSendPage() {
 
           <section>
             <div className="mb-4">
-              <h3 className="text-base font-medium text-white">Résultats détaillés</h3>
-              <p className="text-xs uppercase tracking-widest text-zinc-500">Aperçu</p>
+              <h3 className="text-base font-medium text-white">
+                Résultats détaillés
+              </h3>
+              <p className="text-xs uppercase tracking-widest text-zinc-500">
+                WhatsApp · Email
+              </p>
             </div>
             <div className="md:hidden">
               <div className="space-y-2">
-                {results.map((r) => (
-                  <SendResultMobileCard key={r.phoneNumber} result={r} />
+                {rows.map((row) => (
+                  <CombinedResultMobileCard key={row.key} row={row} />
                 ))}
               </div>
             </div>
@@ -776,24 +1139,41 @@ export function BulkSendPage() {
               <table className={BULK_TABLE_CLASS}>
                 <thead>
                   <tr className={BULK_THEAD_ROW}>
-                    <th className={BULK_TH}>Numéro</th>
-                    <th className={BULK_TH}>Statut</th>
+                    <th className={BULK_TH}>Contact</th>
+                    <th className={BULK_TH}>WhatsApp</th>
+                    <th className={BULK_TH}>Email</th>
                     <th className={BULK_TH}>Détail</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {results.map((r) => (
-                    <tr key={r.phoneNumber} className={BULK_TR}>
-                      <td className={BULK_TD}>{formatWhatsAppPhone(r.phoneNumber)}</td>
+                  {rows.map((row) => (
+                    <tr key={row.key} className={BULK_TR}>
                       <td className={BULK_TD}>
-                        {r.success ? (
-                          <span className="text-emerald-400">Envoyé</span>
-                        ) : (
-                          <span className="text-red-400">Échec</span>
-                        )}
+                        <p className="text-zinc-200">
+                          {row.name || "—"}
+                        </p>
+                        {row.phone ? (
+                          <p className="text-xs text-zinc-500">
+                            {formatWhatsAppPhone(row.phone)}
+                          </p>
+                        ) : null}
+                        {row.email ? (
+                          <p className="text-xs text-zinc-500">{row.email}</p>
+                        ) : null}
                       </td>
                       <td className={BULK_TD}>
-                        {r.success ? "Message transmis" : r.error ?? "Échec"}
+                        <ChannelStatusCell status={row.whatsapp} />
+                      </td>
+                      <td className={BULK_TD}>
+                        <ChannelStatusCell status={row.emailStatus} />
+                      </td>
+                      <td className={cn(BULK_TD, "max-w-xs text-xs text-zinc-500")}>
+                        {[
+                          row.whatsapp === "failed" ? row.whatsappDetail : null,
+                          row.emailStatus === "failed" ? row.emailDetail : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ") || "—"}
                       </td>
                     </tr>
                   ))}
@@ -957,10 +1337,10 @@ export function BulkSendPage() {
                         (step1Page - 1) * PAGE_SIZE + idx + 1;
                       return (
                         <RecipientMobileCard
-                          key={r.phone}
+                          key={recipientKey(r)}
                           index={globalIdx}
                           recipient={r}
-                          onRemove={() => removeRecipient(r.phone)}
+                          onRemove={() => removeRecipient(recipientKey(r))}
                         />
                       );
                     })}
@@ -972,6 +1352,7 @@ export function BulkSendPage() {
                           <th className={BULK_TH}>#</th>
                           <th className={BULK_TH}>Contact</th>
                           <th className={BULK_TH}>Téléphone</th>
+                          <th className={BULK_TH}>Email</th>
                           <th className={BULK_TH_RIGHT}>Action</th>
                         </tr>
                       </thead>
@@ -980,24 +1361,31 @@ export function BulkSendPage() {
                           const globalIdx =
                             (step1Page - 1) * PAGE_SIZE + idx + 1;
                           return (
-                            <tr key={r.phone} className={BULK_TR}>
+                            <tr key={recipientKey(r)} className={BULK_TR}>
                               <td className={BULK_TD}>{globalIdx}</td>
                               <td className={BULK_TD}>
                                 <div className="flex items-center gap-3">
                                   <RecipientAvatar
                                     name={r.name}
-                                    phone={r.phone}
+                                    phone={r.phone || r.email || ""}
                                   />
                                   <span>{r.name || "—"}</span>
                                 </div>
                               </td>
                               <td className={BULK_TD}>
-                                {formatWhatsAppPhone(r.phone)}
+                                {r.phone
+                                  ? formatWhatsAppPhone(r.phone)
+                                  : "—"}
+                              </td>
+                              <td className={BULK_TD}>
+                                {r.email || "—"}
                               </td>
                               <td className={BULK_TD_RIGHT}>
                                 <button
                                   type="button"
-                                  onClick={() => removeRecipient(r.phone)}
+                                  onClick={() =>
+                                    removeRecipient(recipientKey(r))
+                                  }
                                   className="inline-flex items-center justify-center rounded border border-red-700/60 p-1.5 text-red-300 hover:bg-red-900/30"
                                   aria-label="Supprimer"
                                 >
@@ -1055,6 +1443,7 @@ export function BulkSendPage() {
                 onClick={() => {
                   setSendMode("text");
                   setSelectedTemplate(null);
+                  setAlsoSendEmail(false);
                 }}
                 className={cn(
                   "flex flex-1 items-center justify-center gap-2 rounded-lg py-2.5 text-sm font-medium transition",
@@ -1133,6 +1522,125 @@ export function BulkSendPage() {
                 </p>
               </div>
             )}
+
+            {sendMode === "template" && selectedTemplate ? (
+              <div className="space-y-3 rounded-2xl bg-zinc-900 p-4 ring-1 ring-zinc-800">
+                <label className="flex cursor-pointer items-start gap-3">
+                  <input
+                    type="checkbox"
+                    checked={alsoSendEmail}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setAlsoSendEmail(checked);
+                      if (checked && selectedTemplate) {
+                        void loadEmailMappingForTemplate(selectedTemplate);
+                      }
+                    }}
+                    className="mt-1 size-4 rounded border-zinc-600 bg-zinc-950 text-emerald-500"
+                  />
+                  <span>
+                    <span className="block text-sm font-medium text-zinc-100">
+                      Envoyer aussi par email
+                    </span>
+                    <span className="mt-0.5 block text-xs text-zinc-500">
+                      L&apos;email sera envoyé uniquement aux leads ayant une
+                      adresse email. ({emailRecipientsCount} contact
+                      {emailRecipientsCount !== 1 ? "s" : ""} avec email)
+                    </span>
+                  </span>
+                </label>
+
+                {alsoSendEmail ? (
+                  <div className="space-y-4 border-t border-zinc-800 pt-4">
+                    {emailMappingLoading ? (
+                      <div className="flex items-center gap-2 py-6 text-sm text-zinc-500">
+                        <Loader2 className="size-4 animate-spin text-emerald-500" />
+                        Chargement de la version email…
+                      </div>
+                    ) : (
+                      <>
+                        {!emailMappingFound ? (
+                          <p className="rounded-xl bg-amber-500/5 px-3 py-2 text-xs text-amber-300/90 ring-1 ring-amber-500/20">
+                            Aucune version email enregistrée pour ce template —
+                            vous pouvez la saisir ici.
+                          </p>
+                        ) : null}
+
+                        <label className="block space-y-1.5">
+                          <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                            Objet
+                          </span>
+                          <input
+                            type="text"
+                            value={emailSubject}
+                            onChange={(e) => setEmailSubject(e.target.value)}
+                            placeholder="Ex. Message de 63 Agency — {{name}}"
+                            className="w-full rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 text-sm text-zinc-100 outline-none focus:border-emerald-600/80 focus:ring-2 focus:ring-emerald-600/20"
+                          />
+                        </label>
+                        <div className="grid gap-4 lg:grid-cols-2">
+                          <label className="block space-y-1.5">
+                            <span className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                              Corps du message (HTML)
+                            </span>
+                            <textarea
+                              value={emailHtml}
+                              onChange={(e) => setEmailHtml(e.target.value)}
+                              rows={10}
+                              spellCheck={false}
+                              className="app-scroll w-full resize-y rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2.5 font-mono text-[13px] leading-relaxed text-zinc-100 outline-none focus:border-emerald-600/80 focus:ring-2 focus:ring-emerald-600/20"
+                            />
+                            <p className="text-xs text-zinc-500">
+                              Variable{" "}
+                              <code className="rounded bg-zinc-800 px-1 text-emerald-300">
+                                {"{{name}}"}
+                              </code>{" "}
+                              = nom du contact
+                            </p>
+                          </label>
+                          <div>
+                            <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-zinc-500">
+                              Aperçu ({emailPreviewName})
+                            </p>
+                            <div className="rounded-xl border border-zinc-700 bg-white p-4 text-zinc-900 shadow-inner">
+                              <p className="mb-3 border-b border-zinc-200 pb-2 text-sm font-semibold">
+                                {emailPreviewSubject || "(sans objet)"}
+                              </p>
+                              <div
+                                className="prose prose-sm max-w-none text-sm"
+                                dangerouslySetInnerHTML={{
+                                  __html:
+                                    emailPreviewHtml ||
+                                    "<p class='text-zinc-400'>(vide)</p>",
+                                }}
+                              />
+                            </div>
+                          </div>
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={
+                            emailMappingSaving ||
+                            !emailSubject.trim() ||
+                            !emailHtml.trim()
+                          }
+                          onClick={() => void handleSaveEmailMapping()}
+                          className="inline-flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-950 px-3 py-2 text-xs font-medium text-zinc-200 hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {emailMappingSaving ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <Save className="size-3.5" />
+                          )}
+                          Enregistrer comme version par défaut
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         ) : null}
 
@@ -1178,6 +1686,24 @@ export function BulkSendPage() {
                 </p>
               ) : null}
             </div>
+
+            {alsoSendEmail && sendMode === "template" ? (
+              <div className="rounded-2xl bg-zinc-900 p-5 ring-1 ring-zinc-800">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-zinc-500">
+                  Email ({emailRecipientsCount} destinataire
+                  {emailRecipientsCount !== 1 ? "s" : ""})
+                </p>
+                <div className="rounded-xl border border-zinc-700 bg-white p-4 text-zinc-900">
+                  <p className="mb-2 text-sm font-semibold">
+                    {emailPreviewSubject}
+                  </p>
+                  <div
+                    className="prose prose-sm max-w-none text-sm"
+                    dangerouslySetInnerHTML={{ __html: emailPreviewHtml }}
+                  />
+                </div>
+              </div>
+            ) : null}
 
             {/* Recipients review table */}
             <section>
@@ -1355,7 +1881,9 @@ export function BulkSendPage() {
               ) : (
                 <>
                   <span className="hidden sm:inline">
-                    {`Envoyer à ${recipients.length} contact${recipients.length !== 1 ? "s" : ""}`}
+                    {alsoSendEmail
+                      ? `Envoyer WhatsApp + email (${recipients.length})`
+                      : `Envoyer à ${recipients.length} contact${recipients.length !== 1 ? "s" : ""}`}
                   </span>
                   <span className="sm:hidden">
                     {`Envoyer (${recipients.length})`}

@@ -10,7 +10,6 @@ import {
   FileText,
   LayoutDashboard,
   LogOut,
-  Mail,
   MessageCircle,
   MessagesSquare,
   PanelLeft,
@@ -52,12 +51,6 @@ const whatsappSubItems = [
     href: `${WHATSAPP_BASE}/envoi-multiple`,
     label: "Envoi multiple",
     icon: Send,
-    exact: false,
-  },
-  {
-    href: `${WHATSAPP_BASE}/email-multiple`,
-    label: "Envoi Email",
-    icon: Mail,
     exact: false,
   },
 ] as const;

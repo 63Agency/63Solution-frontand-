@@ -3,10 +3,11 @@ const PENDING_IMPORT_KEY = "bulk-send-pending-import";
 
 export type BulkSendSendMode = "text" | "template";
 
-/** Contact importé depuis les Leads (téléphone + nom pour les variables template). */
+/** Contact importé depuis les Leads (téléphone et/ou email). */
 export type BulkSendImportContact = {
   phone: string;
   name: string;
+  email?: string;
 };
 
 export type BulkSendDraft = {
@@ -17,6 +18,10 @@ export type BulkSendDraft = {
   selectedTemplateId?: string;
   /** Noms des leads importés, clé = chiffres normalisés du téléphone. */
   contactNamesByPhone?: Record<string, string>;
+  /** Emails des leads, clé = chiffres normalisés du téléphone. */
+  contactEmailsByPhone?: Record<string, string>;
+  /** Contacts email-only (pas de téléphone valide). */
+  emailOnlyContacts?: Array<{ email: string; name: string }>;
 };
 
 function normalizePhoneDigits(value: string): string {
@@ -26,6 +31,15 @@ function normalizePhoneDigits(value: string): string {
     digits = `212${digits.slice(1)}`;
   }
   return digits;
+}
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+function isValidEmail(value: string): boolean {
+  const email = normalizeEmail(value);
+  return email.includes("@") && email.includes(".");
 }
 
 function parsePhonesRaw(raw: string): string[] {
@@ -45,34 +59,77 @@ function parsePhonesRaw(raw: string): string[] {
   return out;
 }
 
-/** Fusionne des contacts importés dans un brouillon (téléphones + noms). */
+function parseStringMap(
+  value: unknown,
+): Record<string, string> | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).filter(
+      (entry): entry is [string, string] =>
+        typeof entry[0] === "string" && typeof entry[1] === "string",
+    ),
+  );
+}
+
+/** Fusionne des contacts importés dans un brouillon (téléphones + noms + emails). */
 export function mergeContactsIntoDraft(
   draft: BulkSendDraft,
   contacts: BulkSendImportContact[],
 ): { draft: BulkSendDraft; added: number } {
   const current = parsePhonesRaw(draft.phonesRaw);
-  const seen = new Set(current);
+  const seenPhones = new Set(current);
   const names: Record<string, string> = { ...(draft.contactNamesByPhone ?? {}) };
-  const addedPhones: string[] = [];
-
-  for (const contact of contacts) {
-    const digits = normalizePhoneDigits(contact.phone);
-    if (digits.length < 9) continue;
-    const name = contact.name.trim();
-    if (name) names[digits] = name;
-    if (seen.has(digits)) continue;
-    seen.add(digits);
-    addedPhones.push(digits);
+  const emails: Record<string, string> = { ...(draft.contactEmailsByPhone ?? {}) };
+  const emailOnly = [...(draft.emailOnlyContacts ?? [])];
+  const seenEmails = new Set(
+    emailOnly.map((c) => normalizeEmail(c.email)).filter(Boolean),
+  );
+  for (const email of Object.values(emails)) {
+    if (email) seenEmails.add(normalizeEmail(email));
   }
 
+  const addedPhones: string[] = [];
+  let addedEmailOnly = 0;
+
+  for (const contact of contacts) {
+    const digits = normalizePhoneDigits(contact.phone ?? "");
+    const name = contact.name.trim();
+    const email =
+      typeof contact.email === "string" && isValidEmail(contact.email)
+        ? normalizeEmail(contact.email)
+        : "";
+
+    if (digits.length >= 9) {
+      if (name) names[digits] = name;
+      if (email) emails[digits] = email;
+      if (!seenPhones.has(digits)) {
+        seenPhones.add(digits);
+        addedPhones.push(digits);
+      }
+      continue;
+    }
+
+    if (email && !seenEmails.has(email)) {
+      seenEmails.add(email);
+      emailOnly.push({ email, name: name || email.split("@")[0] || "Client" });
+      addedEmailOnly += 1;
+    }
+  }
+
+  const added = addedPhones.length + addedEmailOnly;
+
   return {
-    added: addedPhones.length,
+    added,
     draft: {
       ...draft,
       phonesRaw:
-        addedPhones.length > 0 ? [...current, ...addedPhones].join("\n") : draft.phonesRaw,
-      leadsImportCount: draft.leadsImportCount + addedPhones.length,
+        addedPhones.length > 0
+          ? [...current, ...addedPhones].join("\n")
+          : draft.phonesRaw,
+      leadsImportCount: draft.leadsImportCount + added,
       contactNamesByPhone: names,
+      contactEmailsByPhone: emails,
+      emailOnlyContacts: emailOnly,
     },
   };
 }
@@ -88,23 +145,30 @@ export function loadBulkSendDraft(): BulkSendDraft | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as BulkSendDraft;
-    if (typeof parsed.phonesRaw !== "string" || typeof parsed.message !== "string") return null;
+    if (typeof parsed.phonesRaw !== "string" || typeof parsed.message !== "string")
+      return null;
     const sendMode =
       parsed.sendMode === "template" || parsed.sendMode === "text"
         ? parsed.sendMode
         : "text";
 
-    const contactNamesByPhone =
-      parsed.contactNamesByPhone &&
-      typeof parsed.contactNamesByPhone === "object" &&
-      !Array.isArray(parsed.contactNamesByPhone)
-        ? Object.fromEntries(
-            Object.entries(parsed.contactNamesByPhone).filter(
-              (entry): entry is [string, string] =>
-                typeof entry[0] === "string" && typeof entry[1] === "string",
-            ),
+    const emailOnlyContacts = Array.isArray(parsed.emailOnlyContacts)
+      ? parsed.emailOnlyContacts
+          .filter(
+            (row): row is { email: string; name: string } =>
+              !!row &&
+              typeof row === "object" &&
+              typeof row.email === "string" &&
+              isValidEmail(row.email),
           )
-        : undefined;
+          .map((row) => ({
+            email: normalizeEmail(row.email),
+            name:
+              typeof row.name === "string" && row.name.trim()
+                ? row.name.trim()
+                : row.email.split("@")[0] || "Client",
+          }))
+      : undefined;
 
     return {
       phonesRaw: parsed.phonesRaw,
@@ -116,7 +180,9 @@ export function loadBulkSendDraft(): BulkSendDraft | null {
         typeof parsed.selectedTemplateId === "string"
           ? parsed.selectedTemplateId
           : undefined,
-      contactNamesByPhone,
+      contactNamesByPhone: parseStringMap(parsed.contactNamesByPhone),
+      contactEmailsByPhone: parseStringMap(parsed.contactEmailsByPhone),
+      emailOnlyContacts,
     };
   } catch {
     return null;
@@ -130,13 +196,13 @@ function emptyDraft(): BulkSendDraft {
     leadsImportCount: 0,
     sendMode: "text",
     contactNamesByPhone: {},
+    contactEmailsByPhone: {},
+    emailOnlyContacts: [],
   };
 }
 
 /**
  * Enregistre les contacts à importer ET les fusionne immédiatement dans le brouillon.
- * Le merge draft évite la perte de données si React Strict Mode invoque 2× le mount effect
- * (consume destructif + rechargement d’un ancien brouillon vide).
  */
 export function stashBulkSendImport(contacts: BulkSendImportContact[]): number {
   if (typeof window === "undefined") return 0;
@@ -150,7 +216,6 @@ export function stashBulkSendImport(contacts: BulkSendImportContact[]): number {
 
 /**
  * Lit et consomme le pending import (pour toast / double-check).
- * Les numéros sont déjà dans le brouillon après `stashBulkSendImport`.
  */
 export function consumeBulkSendImport(): BulkSendImportContact[] | null {
   if (typeof window === "undefined") return null;
@@ -163,18 +228,20 @@ export function consumeBulkSendImport(): BulkSendImportContact[] | null {
 
     const contacts: BulkSendImportContact[] = [];
     for (const item of parsed) {
-      // Ancien format : string[] de téléphones uniquement
       if (typeof item === "string") {
         const phone = item.trim();
         if (phone) contacts.push({ phone, name: "" });
         continue;
       }
       if (!item || typeof item !== "object") continue;
-      const row = item as { phone?: unknown; name?: unknown };
-      if (typeof row.phone !== "string" || !row.phone.trim()) continue;
+      const row = item as { phone?: unknown; name?: unknown; email?: unknown };
+      const phone = typeof row.phone === "string" ? row.phone.trim() : "";
+      const email = typeof row.email === "string" ? row.email.trim() : "";
+      if (!phone && !email) continue;
       contacts.push({
-        phone: row.phone.trim(),
+        phone,
         name: typeof row.name === "string" ? row.name.trim() : "",
+        ...(email ? { email } : {}),
       });
     }
     return contacts.length > 0 ? contacts : null;
@@ -184,23 +251,33 @@ export function consumeBulkSendImport(): BulkSendImportContact[] | null {
 }
 
 export const BULK_SEND_PATH = "/dashboard/conversations/envoi-multiple";
-export const BULK_SEND_IMPORT_PATH = "/dashboard/conversations/envoi-multiple/import-leads";
+export const BULK_SEND_IMPORT_PATH =
+  "/dashboard/conversations/envoi-multiple/import-leads";
 
 /** Prépare l'écran Envoi multiple pour un contact (mode template). */
 export function prepareBulkSendForContact(
   phone: string,
   contactName?: string,
+  contactEmail?: string,
 ): void {
   if (typeof window === "undefined") return;
   const digits = normalizePhoneDigits(phone);
   const names: Record<string, string> = {};
+  const emails: Record<string, string> = {};
   const name = contactName?.trim();
+  const email =
+    contactEmail && isValidEmail(contactEmail)
+      ? normalizeEmail(contactEmail)
+      : "";
   if (name && digits.length >= 9) names[digits] = name;
+  if (email && digits.length >= 9) emails[digits] = email;
   saveBulkSendDraft({
     phonesRaw: digits,
     message: "",
     leadsImportCount: 0,
     sendMode: "template",
     contactNamesByPhone: names,
+    contactEmailsByPhone: emails,
+    emailOnlyContacts: [],
   });
 }

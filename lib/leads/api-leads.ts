@@ -84,7 +84,7 @@ export async function fetchLeadById(id: string, signal?: AbortSignal): Promise<C
   return fetchBackendLeadById(id, signal);
 }
 
-/** Charge tous les leads avec téléphone via GET /leads (pagination auto). */
+/** Charge tous les leads avec téléphone ou email via GET /leads (pagination auto). */
 export async function fetchLeadsForImport({
   listId = null,
   status = null,
@@ -120,7 +120,9 @@ export async function fetchLeadsForImport({
   }
 
   return {
-    leads: allLeads.filter((lead) => lead.phone?.trim()),
+    leads: allLeads.filter(
+      (lead) => lead.phone?.trim() || lead.email?.trim(),
+    ),
     filters,
   };
 }

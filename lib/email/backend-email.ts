@@ -7,6 +7,7 @@ import type {
   EmailBroadcastResultItem,
   EmailRecipient,
   EmailTemplate,
+  EmailTemplateMapping,
   FetchEmailRecipientsParams,
 } from "./types";
 import {
@@ -222,6 +223,119 @@ export async function fetchEmailTemplates(
   }
 
   return [...BUILTIN_EMAIL_TEMPLATES];
+}
+
+/**
+ * GET /email/templates/:waTemplateName
+ * → version email enregistrée pour ce template WhatsApp.
+ * 404 / introuvable → { found: false, subject: "", html: "" }.
+ */
+export async function fetchEmailTemplateMapping(
+  waTemplateName: string,
+  signal?: AbortSignal,
+): Promise<EmailTemplateMapping> {
+  const base = getApiBaseUrl();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL manquante.");
+
+  const name = waTemplateName.trim();
+  if (!name) {
+    return { waTemplateName: "", subject: "", html: "", found: false };
+  }
+
+  const res = await fetch(
+    `${base}/email/templates/${encodeURIComponent(name)}`,
+    {
+      method: "GET",
+      headers: buildAuthHeaders(),
+      credentials: "include",
+      cache: "no-store",
+      signal,
+    },
+  );
+
+  if (res.status === 404) {
+    return { waTemplateName: name, subject: "", html: "", found: false };
+  }
+  if (!res.ok) {
+    return parseBackendApiError(res, `GET /email/templates/${name}`);
+  }
+
+  const raw = (await res.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+  if (!raw || typeof raw !== "object") {
+    return { waTemplateName: name, subject: "", html: "", found: false };
+  }
+
+  const subject = String(raw.subject ?? raw.title ?? "").trim();
+  const html = String(raw.html ?? raw.body ?? raw.content ?? "").trim();
+  const found =
+    raw.found === true ||
+    Boolean(subject || html) ||
+    raw.exists === true;
+
+  return {
+    waTemplateName: name,
+    subject,
+    html,
+    found: found && Boolean(subject || html),
+  };
+}
+
+/**
+ * PUT /email/templates/:waTemplateName
+ * Body: { subject, html }
+ * → enregistre la version email par défaut pour ce template WA.
+ */
+export async function saveEmailTemplateMapping(
+  waTemplateName: string,
+  payload: { subject: string; html: string },
+): Promise<EmailTemplateMapping> {
+  const base = getApiBaseUrl();
+  if (!base) throw new Error("NEXT_PUBLIC_API_URL manquante.");
+
+  const name = waTemplateName.trim();
+  if (!name) throw new Error("Nom du template WhatsApp manquant.");
+
+  const subject = payload.subject.trim();
+  const html = payload.html.trim();
+  if (!subject) throw new Error("Le sujet est obligatoire.");
+  if (!html) throw new Error("Le corps de l'email est obligatoire.");
+
+  const res = await fetch(
+    `${base}/email/templates/${encodeURIComponent(name)}`,
+    {
+      method: "PUT",
+      headers: buildAuthHeaders(),
+      credentials: "include",
+      body: JSON.stringify({ subject, html }),
+    },
+  );
+
+  if (!res.ok) {
+    return parseBackendApiError(res, `PUT /email/templates/${name}`);
+  }
+
+  const raw = (await res.json().catch(() => null)) as Record<
+    string,
+    unknown
+  > | null;
+
+  return {
+    waTemplateName: name,
+    subject:
+      typeof raw?.subject === "string" && raw.subject.trim()
+        ? raw.subject.trim()
+        : subject,
+    html:
+      typeof raw?.html === "string" && raw.html.trim()
+        ? raw.html.trim()
+        : typeof raw?.body === "string" && raw.body.trim()
+          ? raw.body.trim()
+          : html,
+    found: true,
+  };
 }
 
 /**

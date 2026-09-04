@@ -195,10 +195,17 @@ export function BulkSendLeadsImportPage() {
   const selectedContacts = useMemo(
     () =>
       allLeads
-        .filter((lead) => selectedIds.has(lead.id) && lead.phone?.trim())
+        .filter(
+          (lead) =>
+            selectedIds.has(lead.id) &&
+            (lead.phone?.trim() || lead.email?.trim()),
+        )
         .map((lead) => ({
-          phone: lead.phone!.trim(),
+          phone: lead.phone?.trim() ?? "",
           name: cleanLeadDisplayName(lead.name),
+          ...(lead.email?.trim()
+            ? { email: lead.email.trim() }
+            : {}),
         })),
     [allLeads, selectedIds],
   );
@@ -251,10 +258,10 @@ export function BulkSendLeadsImportPage() {
     const added = stashBulkSendImport(selectedContacts);
     if (added > 0) {
       toast.success(
-        `${added} numéro${added > 1 ? "s" : ""} ajouté${added > 1 ? "s" : ""} à l'envoi multiple.`,
+        `${added} contact${added > 1 ? "s" : ""} ajouté${added > 1 ? "s" : ""} à l'envoi multiple.`,
       );
     } else {
-      toast.info("Ces numéros sont déjà dans la liste.");
+      toast.info("Ces contacts sont déjà dans la liste.");
     }
     router.push(BULK_SEND_PATH);
   };
@@ -283,14 +290,15 @@ export function BulkSendLeadsImportPage() {
                   Importer depuis les Leads
                 </h2>
                 <p className="mt-1 text-sm text-zinc-500">
-                  Sélectionnez les contacts ClickUp à ajouter à votre envoi WhatsApp.
+                  Sélectionnez les contacts ClickUp à ajouter à votre envoi
+                  WhatsApp / email.
                 </p>
               </div>
             </div>
           </div>
           <p className="rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-3 text-sm text-zinc-400">
             <span className="font-semibold text-white">{allLeads.length}</span> leads avec
-            téléphone
+            téléphone ou email
             {listOptions.length > 0 ? (
               <>
                 {" · "}

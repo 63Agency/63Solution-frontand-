@@ -1,79 +1,57 @@
-# Email broadcast — envoi groupé
+# Email broadcast — mapping par template WhatsApp
 
-Le front expose **Envoi Email** (`/dashboard/conversations/email-multiple`).
+L’envoi email est intégré dans **Envoi multiple** (`/dashboard/conversations/envoi-multiple`).
 
-## Templates email
+## Mapping email ↔ template WA
 
-L’étape **Template** utilise le **même catalogue** que WhatsApp bulk (`GET /api/whatsapp/templates` / Meta).
+### `GET /email/templates/:waTemplateName`
 
-Le front **réécrit** chaque template en version **email professionnelle** :
-
-- **Objet** (`subject`) dédié
-- **Corps HTML** formel (pas le texte WhatsApp mot pour mot)
-- Variable `{{1}}` WhatsApp → `{{name}}` email
-
-Exemples :
-
-| Template WA | Objet email |
-|-------------|-------------|
-| `just_bonjour` | Prise de contact — 63 Agency |
-| `proposal_sent_status` | Suivi de votre proposition — 63 Agency |
-| `proposal_sent_2_` | Relance — votre proposition 63 Agency |
-
-## Endpoints attendus
-
-### `GET /email/recipients`
-
-Query :
-
-| Param   | Type   | Description                          |
-|---------|--------|--------------------------------------|
-| `listId`| string | Optionnel — filtre source ClickUp    |
-| `status`| string | Optionnel — un seul statut lead      |
-
-Réponse :
-
-```json
-[
-  { "email": "karim@example.com", "name": "Karim" }
-]
-```
-
-### `POST /email/broadcast`
+Retourne la version email enregistrée pour ce template Meta.
 
 ```json
 {
+  "waTemplateName": "just_bonjour",
   "subject": "Prise de contact — 63 Agency",
-  "html": "<p>Bonjour {{name}},</p><p>…</p>",
-  "recipients": [
-    { "email": "karim@example.com", "name": "Karim" }
-  ],
-  "templateId": "email-from-…",
+  "html": "<p>Bonjour {{name}},</p>…",
+  "found": true
+}
+```
+
+- **404** ou mapping absent → le front affiche des champs vides + hint.
+- Variable : `{{name}}` (nom du contact).
+
+### `PUT /email/templates/:waTemplateName`
+
+Enregistre / met à jour la version par défaut (bouton « Enregistrer comme version par défaut »).
+
+```json
+{
+  "subject": "…",
+  "html": "<p>…</p>"
+}
+```
+
+## Envoi groupé
+
+### `POST /email/broadcast`
+
+Appelé en parallèle du broadcast WhatsApp si la case est cochée.
+
+```json
+{
+  "subject": "…",
+  "html": "…",
+  "recipients": [{ "email": "karim@example.com", "name": "Karim" }],
   "templateName": "just_bonjour"
 }
 ```
 
-Réponse :
+- Uniquement destinataires **avec email**.
+- Phone-only → WhatsApp seul ; email-only → email seul.
+- Nest remplace `{{name}}` dans subject + html.
 
-```json
-{
-  "sent": 1,
-  "failed": 0,
-  "total": 1,
-  "results": [
-    {
-      "email": "karim@example.com",
-      "name": "Karim",
-      "success": true
-    }
-  ]
-}
-```
-
-## Remplacement template
-
-Nest doit remplacer `{{name}}` dans `subject` et `html` **par destinataire**.
+Réponse : `{ sent, failed, total, results[] }`.
 
 ## Auth
 
-`Authorization: Bearer <JWT>` — mêmes rôles que WhatsApp broadcast.
+Mêmes rôles JWT que WhatsApp broadcast.

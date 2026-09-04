@@ -10,6 +10,14 @@ export type EmailTemplate = {
   html: string;
 };
 
+/** Mapping email lié à un template WhatsApp (`GET/PUT /email/templates/:waTemplateName`). */
+export type EmailTemplateMapping = {
+  waTemplateName: string;
+  subject: string;
+  html: string;
+  found: boolean;
+};
+
 export type FetchEmailRecipientsParams = {
   listId?: string | null;
   status?: string | null;
