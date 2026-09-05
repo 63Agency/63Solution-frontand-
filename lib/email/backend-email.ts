@@ -227,6 +227,7 @@ export async function fetchEmailTemplates(
 
 /**
  * GET /email/templates/:waTemplateName
+ * Backend shape: { wa_template_name, subject, html_body }
  * → version email enregistrée pour ce template WhatsApp.
  * 404 / introuvable → { found: false, subject: "", html: "" }.
  */
@@ -268,15 +269,26 @@ export async function fetchEmailTemplateMapping(
     return { waTemplateName: name, subject: "", html: "", found: false };
   }
 
-  const subject = String(raw.subject ?? raw.title ?? "").trim();
-  const html = String(raw.html ?? raw.body ?? raw.content ?? "").trim();
+  // Backend Nest: subject + html_body (snake_case). Fallbacks for legacy keys.
+  const subject = String(
+    raw.subject ?? raw.title ?? "",
+  ).trim();
+  const html = String(
+    raw.html_body ?? raw.htmlBody ?? raw.html ?? raw.body ?? raw.content ?? "",
+  ).trim();
+
+  console.log("[email mapping]", raw, "-> body:", raw.html_body);
+
   const found =
     raw.found === true ||
     Boolean(subject || html) ||
     raw.exists === true;
 
   return {
-    waTemplateName: name,
+    waTemplateName:
+      typeof raw.wa_template_name === "string" && raw.wa_template_name.trim()
+        ? raw.wa_template_name.trim()
+        : name,
     subject,
     html,
     found: found && Boolean(subject || html),
@@ -285,7 +297,7 @@ export async function fetchEmailTemplateMapping(
 
 /**
  * PUT /email/templates/:waTemplateName
- * Body: { subject, html }
+ * Body: { subject, html_body } (aligné Nest)
  * → enregistre la version email par défaut pour ce template WA.
  */
 export async function saveEmailTemplateMapping(
@@ -309,7 +321,7 @@ export async function saveEmailTemplateMapping(
       method: "PUT",
       headers: buildAuthHeaders(),
       credentials: "include",
-      body: JSON.stringify({ subject, html }),
+      body: JSON.stringify({ subject, html_body: html }),
     },
   );
 
@@ -322,18 +334,18 @@ export async function saveEmailTemplateMapping(
     unknown
   > | null;
 
+  const savedSubject =
+    typeof raw?.subject === "string" && raw.subject.trim()
+      ? raw.subject.trim()
+      : subject;
+  const savedHtml = String(
+    raw?.html_body ?? raw?.htmlBody ?? raw?.html ?? raw?.body ?? html,
+  ).trim();
+
   return {
     waTemplateName: name,
-    subject:
-      typeof raw?.subject === "string" && raw.subject.trim()
-        ? raw.subject.trim()
-        : subject,
-    html:
-      typeof raw?.html === "string" && raw.html.trim()
-        ? raw.html.trim()
-        : typeof raw?.body === "string" && raw.body.trim()
-          ? raw.body.trim()
-          : html,
+    subject: savedSubject,
+    html: savedHtml || html,
     found: true,
   };
 }

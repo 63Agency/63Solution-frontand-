@@ -728,6 +728,10 @@ export function BulkSendPage() {
     setEmailMappingLoading(true);
     try {
       const mapping = await fetchEmailTemplateMapping(waName);
+      console.log(
+        "[email mapping] applied to state",
+        { subject: mapping.subject, htmlLen: mapping.html.length, found: mapping.found },
+      );
       setEmailSubject(mapping.subject);
       setEmailHtml(mapping.html);
       setEmailMappingFound(mapping.found);

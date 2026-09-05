@@ -6,28 +6,22 @@ L’envoi email est intégré dans **Envoi multiple** (`/dashboard/conversations
 
 ### `GET /email/templates/:waTemplateName`
 
-Retourne la version email enregistrée pour ce template Meta.
-
 ```json
 {
-  "waTemplateName": "just_bonjour",
-  "subject": "Prise de contact — 63 Agency",
-  "html": "<p>Bonjour {{name}},</p>…",
-  "found": true
+  "wa_template_name": "welcome_new_lead",
+  "subject": "Bienvenue — 63 Agency",
+  "html_body": "<p>Bonjour {{name}},</p>…"
 }
 ```
 
-- **404** ou mapping absent → le front affiche des champs vides + hint.
-- Variable : `{{name}}` (nom du contact).
+Le front lit **`subject`** + **`html_body`** (snake_case).
 
 ### `PUT /email/templates/:waTemplateName`
-
-Enregistre / met à jour la version par défaut (bouton « Enregistrer comme version par défaut »).
 
 ```json
 {
   "subject": "…",
-  "html": "<p>…</p>"
+  "html_body": "<p>…</p>"
 }
 ```
 
